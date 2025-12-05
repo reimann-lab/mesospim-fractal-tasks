@@ -1,0 +1,10 @@
+# Do not edit - changes here will be overwritten by Copier
+_commit: v0.5.0
+_src_path: gh:fractal-analytics-platform/fractal-tasks-template
+author_email: giliane.rochat@usz.ch
+author_name: Giliane Rochat
+package_name: mesopsim_fractal_tasks
+project_name: mesospim-fractal-tasks
+project_short_description: Collection of Fractal tasks to convert and process mesoSPIM lightsheet data.
+project_url: ''
+

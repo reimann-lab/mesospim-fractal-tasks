@@ -1,0 +1,22 @@
+name: mesospim-fractal-tasks
+channels:
+  - conda-forge
+dependencies:
+  - anndata[version=">=0.8.0,<0.11.0"]
+  - dask[version=">=2023.1.0,<=2025.10.0"]
+  - h5py
+  - imagecodecs
+  - napari
+  - pandas
+  - pyqt
+  - python=3.11
+  - scikit-image
+  - tifffile
+  - zarr[version="<3"]
+  - spatial-image=1.2.3
+  - pip:
+    - fractal-task-tools==0.0.12
+    - fractal-tasks-core==1.5.3
+    - multiview-stitcher==0.1.40
+
+prefix: "/Users/giro/miniconda3/envs/mesospim-fractal-tasks"

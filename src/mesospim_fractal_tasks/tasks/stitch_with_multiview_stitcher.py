@@ -17,14 +17,14 @@ from multiview_stitcher import fusion, msi_utils, param_utils, registration
 from multiview_stitcher import spatial_image_utils as si_utils
 from pydantic import validate_call
 
-from skinnervation3d_fractal_tasks.utils.stitching import (
+from mesospim_fractal_tasks.utils.stitching import (
     StitchingChannelInputModel,
     get_sim_from_multiscales,
     get_tiles_from_sim,
     patched_get_sim_from_array
 )
 si_utils.get_sim_from_array = patched_get_sim_from_array
-from skinnervation3d_fractal_tasks import __version__, __commit__
+from mesospim_fractal_tasks import __version__, __commit__
 
 logger = logging.getLogger(__name__)
 

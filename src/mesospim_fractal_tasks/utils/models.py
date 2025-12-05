@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 import numpy as np
 from typing_extensions import Literal
-from skinnervation3d_fractal_tasks.utils.basicpy_nojax import FittingMode, ResizeMode
+from mesospim_fractal_tasks.utils.basicpy_nojax import FittingMode, ResizeMode
 import logging
 
 logger = logging.getLogger(__name__)

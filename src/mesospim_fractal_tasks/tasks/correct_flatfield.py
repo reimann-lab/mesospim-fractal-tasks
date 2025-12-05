@@ -21,12 +21,11 @@ import zarr
 from scipy.ndimage import zoom
 from skimage.filters import gaussian
 
-from skinnervation3d_fractal_tasks.utils.models import (BaSiCPyModelParams, 
-                                                        IlluminationModel)
-from skinnervation3d_fractal_tasks.utils.basicpy_nojax import BaSiC
-from skinnervation3d_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                            _update_omero_channels)
-from skinnervation3d_fractal_tasks import __version__, __commit__
+from mesospim_fractal_tasks.utils.models import (BaSiCPyModelParams, IlluminationModel)
+from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
+from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
+                                                     _update_omero_channels)
+from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.roi import (

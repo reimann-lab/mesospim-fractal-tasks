@@ -47,7 +47,7 @@ authors = [
 ]
 
 # Required Python version and dependencies
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 dependencies = [
     "ngio>=0.2.1", 
     "scikit-image", 
@@ -69,7 +69,19 @@ dependencies = [
 # Optional dependencies (e.g. for `pip install -e ".[dev]"`, see
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies)
 [project.optional-dependencies]
-dev = ["devtools", "hatch", "pytest", "requests", "jsonschema", "ruff", "pre-commit"]
+dev = [
+    "devtools", 
+    "hatch", 
+    "pytest", 
+    "requests", 
+    "jsonschema", 
+    "ruff", 
+    "pre-commit"
+]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+]
 
 # https://docs.astral.sh/ruff
 [tool.ruff]

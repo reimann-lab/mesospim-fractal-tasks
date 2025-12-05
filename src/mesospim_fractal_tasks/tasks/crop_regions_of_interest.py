@@ -10,8 +10,8 @@ from fractal_tasks_core.roi import get_single_image_ROI
 from fractal_tasks_core.tables import write_table
 from fractal_tasks_core.pyramids import build_pyramid
 
-from skinnervation3d_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                            _update_omero_channels)
+from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
+                                                     _update_omero_channels)
 
 logger = logging.getLogger(__name__)
 

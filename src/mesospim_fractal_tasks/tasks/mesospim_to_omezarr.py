@@ -18,8 +18,8 @@ import zarr
 import tifffile as tiff
 import h5py
 
-from skinnervation3d_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
-from skinnervation3d_fractal_tasks import __version__, __commit__
+from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
+from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
 

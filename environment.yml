@@ -9,14 +9,14 @@ dependencies:
   - napari
   - pandas
   - pyqt
-  - python=3.11
+  - python>=3.11,<3.13
   - scikit-image
   - tifffile
-  - zarr[version="<3"]
-  - spatial-image=1.2.3
+  - zarr<3
   - pip:
     - fractal-task-tools==0.0.12
     - fractal-tasks-core==1.5.3
     - multiview-stitcher==0.1.40
+    - napari-ome-zarr-navigator
 
 prefix: "/Users/giro/miniconda3/envs/mesospim-fractal-tasks"

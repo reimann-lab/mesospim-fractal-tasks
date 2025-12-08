@@ -70,7 +70,7 @@ dependencies = [
 # https://peps.python.org/pep-0621/#dependencies-optional-dependencies)
 [project.optional-dependencies]
 dev = [
-    "pytest-mock"
+    "pytest-mock",
     "devtools", 
     "hatch", 
     "pytest", 

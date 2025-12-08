@@ -1,0 +1,75 @@
+[Metadata for file] tests/data/example_640.tif
+
+[CFG] 
+[Laser] 640 nm
+[Intensity (%)] 55
+[Zoom] 20x
+[Pixelsize in um] 1
+[Filter] 647LP
+[Shutter] Right
+
+[POSITION] 
+[x_pos] 4
+[y_pos] 3
+[f_start] 50.0
+[f_end] 50.0
+[z_start] 0
+[z_end] 2
+[z_stepsize] 1
+[z_planes] 2
+[rot] 0.0
+
+[CAMERA PARAMETERS] 
+[camera_type] Photometrics
+[camera_exposure] 0.01
+[camera_line_interval] 7.5e-05
+[x_pixels] 4
+[y_pixels] 3
+
+[TIMING INFORMATION] 
+[Started stack] 20250930-185801
+[Started taking images] 20250930-185803
+[Stopped taking images] 20250930-190004
+[Stopped stack] 20250930-190005
+[Total time of taking images, s] 121.25
+[Total time of stack acquisition, s] 123.91
+[Frame rate during taking images, img/s:] 3.64
+[===================== END OF ACQUISITION ======================] 
+
+[Metadata for file] tests/data/example_561.tif
+
+[CFG] 
+[Laser] 561 nm
+[Intensity (%)] 55
+[Zoom] 20x
+[Pixelsize in um] 1
+[Filter] 562LP
+[Shutter] Right
+
+[POSITION] 
+[x_pos] 4
+[y_pos] 3
+[f_start] 50.0
+[f_end] 50.0
+[z_start] 0
+[z_end] 2
+[z_stepsize] 1
+[z_planes] 2
+[rot] 0.0
+
+[CAMERA PARAMETERS] 
+[camera_type] Photometrics
+[camera_exposure] 0.01
+[camera_line_interval] 7.5e-05
+[x_pixels] 4
+[y_pixels] 3
+
+[TIMING INFORMATION] 
+[Started stack] 20250930-190005
+[Started taking images] 20250930-190007
+[Stopped taking images] 20250930-190209
+[Stopped stack] 20250930-190233
+[Total time of taking images, s] 121.81
+[Total time of stack acquisition, s] 148.88
+[Frame rate during taking images, img/s:] 3.62
+[===================== END OF ACQUISITION ======================] 

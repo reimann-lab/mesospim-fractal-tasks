@@ -619,22 +619,12 @@
             "description": "Missing description"
           },
           "fusion_chunksize": {
-            "maxItems": 3,
-            "minItems": 3,
-            "prefixItems": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              }
-            ],
+            "items": {
+              "type": "integer"
+            },
             "title": "Fusion Chunksize",
             "type": "array",
-            "description": "Chunksize to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. If None, the chunksize of the raw image is used. In case of registration_on_z_proj=True, chunksize for the Z dimension is set to the number of z planes."
+            "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. If None, the chunksize of the raw image is used. In case of registration_on_z_proj=True, chunksize for the Z dimension is set to the number of z planes."
           }
         },
         "required": [

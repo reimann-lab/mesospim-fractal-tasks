@@ -17,6 +17,7 @@ from pydantic import validate_call
 import zarr
 import tifffile as tiff
 import h5py
+import psutil
 
 from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
 from mesospim_fractal_tasks import __version__, __commit__
@@ -646,6 +647,11 @@ def convert_h5_multitile(
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0] 
 
+    available_mem = (psutil.virtual_memory().available * 0.5)
+    max_z_planes = max(z_pixels, int(available_mem / (x_pixels * y_pixels * z_pixels * 2)))
+    logger.info(f"Based on available memory ({(available_mem/1e9):.2f}), the maximum "
+                f"number of z planes loaded at once is set to {max_z_planes}.")
+
     logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
     image_arr = zarr.create(
         shape=(nb_channels, z_pixels, final_y_pixels, final_x_pixels),
@@ -677,9 +683,9 @@ def convert_h5_multitile(
 
                 n_zslices = 0
                 with h5py.File(filename, "r") as f:
-                    while n_zslices * 30 < z_pixels:
-                        z_start = n_zslices * 30
-                        z_end = min(z_start + 30, z_pixels)
+                    while n_zslices < z_pixels:
+                        z_start = n_zslices
+                        z_end = min(z_start + max_z_planes, z_pixels)
                         z_plane = f[tile_name][z_start:z_end,
                                                :y_pixels,
                                                :x_pixels]
@@ -689,7 +695,7 @@ def convert_h5_multitile(
                             slice(y_counter, y_counter + y_pixels), 
                             slice(x_counter, x_counter + x_pixels))
                         image_arr[region] = z_plane
-                        n_zslices += 1
+                        n_zslices += max_z_planes
                 logger.info(f"Converted {tile_name} to zarr") 
                 
                 if c == 0:

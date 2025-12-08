@@ -1,0 +1,52 @@
+site_name: MesoSPIM Fractal Tasks
+site_description: Tasks for converting mesoSPIM lightsheet image data to OME-Zarr and performing illumination correction & stitching
+site_author: Giliane Rochat
+repo_url: https://github.com/girochat/mesospim-fractal-tasks
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.expand
+    - toc.integrate
+    - content.code.annotate
+  palette:
+
+    # Palette toggle for light mode
+    - scheme: default 
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to dark mode
+      primary: light blue
+      accent: indigo
+
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/weather-night
+        name: Switch to light mode
+      primary: indigo
+      accent: light blue
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+ #- Installation: installation.md
+  - Usage:
+      - Overview: usage/index.md
+      - Running Tasks in Fractal: usage/fractal_integration.md
+  #    - Running Tasks Locally: usage/local_run.md
+  - Task Reference:
+      - Convert MesoSPIM to OME-Zarr: tasks/mesopsim_to_omezarr.md
+      - Flatfield Correction: tasks/flatfield.md
+      - Illumination Correction: tasks/global_optim.md
+      - Stitching Multitile: tasks/stitching.md
+      - ROI Cropping: tasks/roi_cropping.md
+  - Contributing: contributing.md
+  #- Changelog: changelog.md

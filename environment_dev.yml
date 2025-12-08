@@ -1,0 +1,44 @@
+name: mesospim-tasks-dev
+channels:
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Core Python
+  - python>=3.11,<3.13
+
+  # Core scientific deps (prefer conda versions)
+  - numpy
+  - scipy
+  - pandas
+  - scikit-image
+  - tifffile
+  - h5py
+  - zarr<3
+  - dask<=2025.10.0
+  - imagecodecs
+  - anndata
+  - napari
+
+  # Dev tools
+  - pytest
+  - pre-commit
+  - ruff
+  - jsonschema
+  - requests
+  - devtools
+  - hatch
+
+  # Docs
+  - mkdocs
+  - mkdocs-material
+  - pip
+
+  # pip-only packages (not in conda or with outdated versions)
+  - pip:
+      - ngio>=0.2.1
+      - fractal-task-tools
+      - fractal-tasks-core
+      - multiview-stitcher==0.1.40
+      - napari-ome-zarr-navigator
+      - -e . # If installing the package locally during development:

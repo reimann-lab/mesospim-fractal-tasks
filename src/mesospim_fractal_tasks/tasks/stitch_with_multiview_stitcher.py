@@ -38,7 +38,7 @@ def stitch_with_multiview_stitcher(
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Optional[tuple[int, int, int]] = None,
+    fusion_chunksize: Optional[list[int, int, int]] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 
@@ -78,10 +78,11 @@ def stitch_with_multiview_stitcher(
             - 'keep_axis_aligned': Keep only edges that align with tile axes. This is 
                 useful for regular grid arrangements and to explicitely prune diagonals, 
                 e.g. when other methods fail.
-        fusion_chunksize: Chunksize to use when performing the fusion. It impacts the 
-            memory usage and the time to fuse the tiles. If None, the chunksize
-            of the raw image is used. In case of registration_on_z_proj=True, chunksize
-            for the Z dimension is set to the number of z planes.
+        fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing 
+            the fusion. It impacts the memory usage and the time to fuse the tiles. 
+            If None, the chunksize of the raw image is used. In case of 
+            registration_on_z_proj=True, chunksize for the Z dimension is set to the 
+            number of z planes.
     """
     # Use the first of input_paths
     logger.info(f"Start task: {__name__} for {zarr_url}")

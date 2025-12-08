@@ -19,7 +19,6 @@ from fractal_tasks_core.roi import (
 )
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
-import matplotlib.pyplot as plt
 
 logger = logging.getLogger(__name__)
 

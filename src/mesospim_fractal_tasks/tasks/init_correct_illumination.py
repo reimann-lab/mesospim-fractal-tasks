@@ -31,7 +31,8 @@ def group_by_channel(
     """
     channel_dict = {}
     channels = get_omero_channel_list(image_zarr_path=zarr_url)
-
+    if len(channels) == 0:
+        raise ValueError("No channels found in the OME Zarr metadata.")
     FOV_ROI_table = ad.read_zarr(f"{zarr_url}/tables/FOV_ROI_table")
 
     n_FOVs = len(FOV_ROI_table)
@@ -65,20 +66,21 @@ def init_correct_illumination(
         task_output: Dictionary for Fractal server that contains a
             parallelization list.
     """
-    logger.info(f"Start task: {__name__} for {zarr_urls[0]}")
+    zarr_path = Path(zarr_urls[0])
+    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
 
     logger.info(
         f"Calculating illumination profiles (flatfield/darkfield) based on "
         f"randomly sampled z planes across all ROIs for each channel.")
 
-    channels_dict = group_by_channel(zarr_urls[0])
+    channels_dict = group_by_channel(zarr_path)
 
-    image_meta = load_NgffImageMeta(zarr_urls[0])
+    image_meta = load_NgffImageMeta(zarr_path)
     num_level = image_meta.num_levels
     coarsening_xy = image_meta.coarsening_xy
     if coarsening_xy is None:
         coarsening_xy = 2
-    raw_array = zarr.open(zarr_urls[0])["0"]
+    raw_array = zarr.open(zarr_path)["0"]
     for level in range(num_level):
         shape = (raw_array.shape[0], raw_array.shape[1],
                  raw_array.shape[2] // 2**level, 
@@ -86,7 +88,7 @@ def init_correct_illumination(
         _ = zarr.create(
             shape=shape,
             chunks=raw_array.chunks,
-            store=zarr.storage.FSStore(Path(Path(zarr_urls[0]).parent,
+            store=zarr.storage.FSStore(Path(zarr_path.parent,
                                              "raw_image_illum_corr",
                                                str(level))),
             dtype=raw_array.dtype,

@@ -644,6 +644,8 @@ def convert_h5_multitile(
     x_scale = meta_df.loc[0, "x_scale"]
 
     z_pixels = meta_df.loc[0, "z_n_pixels"]
+    y_pixels = meta_df.loc[0, "y_n_pixels"]
+    x_pixels = meta_df.loc[0, "x_n_pixels"]
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0] 
 

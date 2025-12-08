@@ -177,12 +177,15 @@ def compute_global_normalisation(
                 gain_graph.append((f"ROI_{i_ROI1}", f"ROI_{i_ROI2}", gain))
 
     logger.info(f"Start computing gain map fo channel {channel_name}...")
-    ROI_indices = {section: i for i, section in enumerate(ROIs)} 
-    gains = least_squares(gain_residuals, x0=np.ones(len(ROIs)), 
-                          args=(gain_graph, ROI_indices), 
-                          bounds=(np.ones(num_ROIs), np.full(num_ROIs, np.inf)))
-    max_idx = np.argmax(gains.x)
-    gain_map = {tile: (gains.x[i] / gains.x[max_idx]) for i, tile in enumerate(ROIs)}
+    ROI_indices = {section: i for i, section in enumerate(ROIs)}
+    if len(gain_graph) > 0:
+        gains = least_squares(gain_residuals, x0=np.ones(len(ROIs)), 
+                            args=(gain_graph, ROI_indices), 
+                            bounds=(np.ones(num_ROIs), np.full(num_ROIs, np.inf))).x
+    else:
+        gains = np.ones(len(ROIs))
+    max_idx = np.argmax(gains)
+    gain_map = {tile: (gains[i] / gains[max_idx]) for i, tile in enumerate(ROIs)}
     logger.info(f"Gain map computed: {gain_map}")
 
     return gain_map
@@ -195,11 +198,14 @@ def correct_illumination(
     z_correction: bool = False,
 ) -> dict[str, Any]:
     
-    logger.info(f"Start task: {__name__} for {zarr_url}")
+    zarr_path = Path(zarr_url)
+    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
     
     # Define new zarr path
-    zarr_path = Path(zarr_url)
-    new_zarr_path = Path(zarr_path.parent, "raw_image_illum_corr")
+    new_zarr_path = Path(zarr_path.parent, zarr_path.name+"_illum_corr")
+    if not new_zarr_path.exists():
+        logger.error(f"Error! {new_zarr_path} does not exist.")
+        raise FileNotFoundError
     image_array = da.from_zarr(Path(zarr_url, "0"))
     
     # Get channel name from init task
@@ -307,7 +313,7 @@ def correct_illumination(
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(
-        new_zarr_path, num_levels, channel_index=channel_index)
+        new_zarr_path, num_levels, channel_index=channel_index, segment_sample=True)
     _update_omero_channels(new_zarr_path, {"window": contrast_limits})
 
     image_list_updates = dict(

@@ -1,6 +1,9 @@
-from skinnervation3d_fractal_tasks.tasks.init_correct_flatfield import (init_correct_flatfield, 
-                                                                        group_by_channel)
+from mesospim_fractal_tasks.tasks.init_correct_flatfield import (
+    init_correct_flatfield,
+    group_by_channel)
 import shutil
+
+MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield"
 
 def test_group_by_channel(
     mocker, 
@@ -10,7 +13,7 @@ def test_group_by_channel(
     mock_channel2 = mocker.Mock(label="Ch1", index=5)
 
     mocker.patch(
-        "skinnervation3d_fractal_tasks.tasks.init_correct_flatfield.get_omero_channel_list",
+        MODULE + ".get_omero_channel_list",
         return_value=[mock_channel, mock_channel2],
     )
 
@@ -58,7 +61,10 @@ def test_init_correct_flatfield_max_z_logic(
     assert args["max_z"] == 5
 
 def test_save_models_creates_correct_folder_name(
-        mocker, tmp_dataset, mock_init_correct_flatfield_env):
+    mocker, 
+    tmp_dataset, 
+    mock_init_correct_flatfield_env
+):
     fake_zarr = tmp_dataset / "fake.zarr" / "fake_image"
     fake_zarr.parent.mkdir(parents=True)
     fake_zarr.mkdir()

@@ -1,4 +1,4 @@
-from skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr import (
+from mesospim_fractal_tasks.tasks.mesospim_to_omezarr import (
     mesospim_to_omezarr,
     read_metadata,
     dispatcher,
@@ -16,9 +16,13 @@ import pandas as pd
 import numpy as np
 from tifffile import imwrite
 
+MODULE = "mesospim_fractal_tasks.tasks.mesospim_to_omezarr"
+
 def test_zarr_creation(
-        tmp_dataset, h5_txt_metadata, mock_mesospim_env):
-    
+    tmp_dataset, 
+    h5_txt_metadata, 
+    mock_mesospim_env
+):
     # 1. Default Zarr creation
     mesospim_to_omezarr(
         zarr_dir=str(tmp_dataset),
@@ -27,11 +31,11 @@ def test_zarr_creation(
     expected_default = tmp_dataset / f"{tmp_dataset.name}.zarr"
     assert expected_default.exists()
 
-    # check image group exists
+    # Check image group exists
     root = zarr.open_group(expected_default, mode="r")
     assert "raw_image" in root
 
-    # 2. Custom Zarr creation
+    # 2. Custom Zarr creation (custom image name)
     mesospim_to_omezarr(
         zarr_dir=str(tmp_dataset),
         zarr_name="mydata",
@@ -46,27 +50,34 @@ def test_zarr_creation(
     assert "myimage" in root2
 
 def test_zarr_append_does_not_erase_existing(
-        tmp_dataset, h5_txt_metadata, mock_mesospim_env):
+    tmp_dataset, 
+    h5_txt_metadata, 
+    mock_mesospim_env
+):
     zarr_path = tmp_dataset / f"{tmp_dataset.name}.zarr"
 
-    # 1. Pre-create a Zarr with content
+    # 1. Pre-create Zarr with content
     root = zarr.open_group(zarr_path, mode="w")
     root.create_group("existing_group")
 
-    # 3. Call your function, which should NOT delete existing content
+    # Function call should NOT delete existing content
     mesospim_to_omezarr(
         zarr_dir=str(tmp_dataset)
     )
 
-    # 4. Reload and verify existing content still exists
+    # Verify existing content still exists
     root2 = zarr.open_group(zarr_path, mode="r")
     assert "existing_group" in root2
 
 def test_metadata_file_provided_and_exists(
-        tmp_dataset, h5_txt_metadata, mocker, mock_mesospim_env):
+    tmp_dataset, 
+    h5_txt_metadata, 
+    mocker, 
+    mock_mesospim_env
+):
 
     # Mock dependencies
-    mocker.patch("skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr.zarr.open_group")
+    mocker.patch(MODULE + ".zarr.open_group")
     mock_read = mock_mesospim_env["read_metadata"]
 
     mesospim_to_omezarr(
@@ -79,8 +90,11 @@ def test_metadata_file_provided_and_exists(
         []
     )
 
-def test_metadata_file_provided_and_missing(tmp_dataset, mocker):
-    mocker.patch("skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr.zarr.open_group")
+def test_metadata_file_provided_and_missing(
+    tmp_dataset, 
+    mocker
+):
+    mocker.patch(MODULE + ".zarr.open_group")
     
     with pytest.raises(FileNotFoundError):
         mesospim_to_omezarr(
@@ -88,7 +102,11 @@ def test_metadata_file_provided_and_missing(tmp_dataset, mocker):
             metadata_file="nope.txt",
         )
 
-def test_metadata_autodiscovery_single_file(tmp_dataset, h5_txt_metadata, mock_mesospim_env):
+def test_metadata_autodiscovery_single_file(
+    tmp_dataset, 
+    h5_txt_metadata, 
+    mock_mesospim_env
+):
     mock_read = mock_mesospim_env["read_metadata"]
 
     mesospim_to_omezarr(
@@ -97,11 +115,12 @@ def test_metadata_autodiscovery_single_file(tmp_dataset, h5_txt_metadata, mock_m
         metadata_file=None,
     )
 
-    # Should have used the found metadata file
     used_path = mock_read.call_args[0][0]
     assert used_path.name == "image_0001.h5_meta.txt"
 
-def test_metadata_autodiscovery_no_match(tmp_dataset):
+def test_metadata_autodiscovery_no_match(
+    tmp_dataset
+):
 
     with pytest.raises(FileNotFoundError):
         mesospim_to_omezarr(
@@ -109,9 +128,14 @@ def test_metadata_autodiscovery_no_match(tmp_dataset):
             metadata_file=None,
         )
 
-def test_metadata_autodiscovery_multiple_files(tmp_dataset, h5_txt_metadata):
+def test_metadata_autodiscovery_multiple_files(
+    tmp_dataset, 
+    h5_txt_metadata
+):
+    # Create a second metadata file
     (tmp_dataset / "other_h5_txt_metadata.h5_meta.txt").write_text("1")
 
+    # Verify that error is raised
     with pytest.raises(FileNotFoundError):
         mesospim_to_omezarr(
             zarr_dir=str(tmp_dataset),
@@ -143,12 +167,17 @@ def test_read_metadata_basic_structure():
     # no missing values in required fields
     assert not df[list(required_cols)].isna().any().any()
 
-def test_empty_metadata_file(tmp_dataset, h5_txt_metadata):
+def test_empty_metadata_file(
+    tmp_dataset, 
+    h5_txt_metadata
+):
 
     with pytest.raises(ValueError):
         read_metadata(h5_txt_metadata, exclusion_list=[])
 
-def test_nan_in_metadata(tmp_dataset):
+def test_nan_in_metadata(
+    tmp_dataset
+):
     source_txt = Path("tests", "data", "multitile_example.h5_meta.txt")
     new_txt = Path(tmp_dataset, "corrupted.h5_meta.txt")
     shutil.copy(source_txt, new_txt)
@@ -187,7 +216,10 @@ def test_dispatcher_invalid():
     with pytest.raises(ValueError):
         dispatcher("none")
 
-def test_convert_no_files(tmp_dataset, mocker):
+def test_convert_no_files(
+    tmp_dataset, 
+    mocker
+):
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
     meta_df = pd.DataFrame()
@@ -211,7 +243,10 @@ def test_convert_no_files(tmp_dataset, mocker):
             chunk_sizes=chunk_sizes,
         )
 
-def test_wrong_file_count(tmp_dataset, mocker):
+def test_wrong_file_count(
+    tmp_dataset, 
+    mocker
+):
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
 
@@ -244,7 +279,10 @@ def test_wrong_file_count(tmp_dataset, mocker):
             chunk_sizes,
         )
 
-def test_num_channel_mismatch(tmp_dataset, mocker):
+def test_num_channel_mismatch(
+    tmp_dataset, 
+    mocker
+):
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
 
@@ -279,7 +317,10 @@ def test_num_channel_mismatch(tmp_dataset, mocker):
             chunk_sizes,
         )
 
-def test_convert_h5_no_file(tmp_dataset, mocker):
+def test_convert_h5_no_file(
+    tmp_dataset, 
+    mocker
+):
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
 
@@ -296,14 +337,17 @@ def test_convert_h5_no_file(tmp_dataset, mocker):
             chunk_sizes=chunk_sizes,
         )
 
-def test_convert_h5_multiple_files(tmp_dataset, mocker):
+def test_convert_h5_multiple_files(
+    tmp_dataset, 
+    mocker
+):
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
 
     meta_file = Path("tests", "data", "multitile_example.h5_meta.txt")
     meta_df = read_metadata(meta_file, exclusion_list=[])
 
-    # Two matching .h5 files (empty; we never open them in this error path)
+    # Two matching .h5 files
     (tmp_dataset / "sample_my_pattern_1.h5").touch()
     (tmp_dataset / "sample_my_pattern_2.h5").touch()
 
@@ -317,7 +361,9 @@ def test_convert_h5_multiple_files(tmp_dataset, mocker):
             chunk_sizes=chunk_sizes,
         )
 
-def test_convert_h5_tile_channel_mismatch_raises(mocker):
+def test_convert_h5_tile_channel_mismatch_raises(
+    mocker
+):
     dataset_dir = Path("tests", "data")
     chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
     image_group = {"raw_image": mocker.Mock()}
@@ -328,7 +374,7 @@ def test_convert_h5_tile_channel_mismatch_raises(mocker):
     # Mock get_h5_structure so we control tile_names length
     # e.g. 3 tiles total, but 2 channels → 3 % 2 != 0 → ValueError
     mocker.patch(
-        "skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr.get_h5_structure",
+        MODULE + ".get_h5_structure",
         return_value=["tile_0", "tile_1", "tile_2"],
     )
 
@@ -346,7 +392,9 @@ def test_convert_h5_tile_channel_mismatch_raises(mocker):
             chunk_sizes=chunk_sizes,
         )
 
-def test_load_channel_colors_from_path(tmp_dataset):
+def test_load_channel_colors_from_path(
+    tmp_dataset
+):
     json_file = tmp_dataset / "colors.json"
     json_file.write_text('{"ch0": {"label": "A", ' \
     '"laser_wavelength": 488, ' \
@@ -356,7 +404,10 @@ def test_load_channel_colors_from_path(tmp_dataset):
 
     assert result == {"ch0": {"label": "A", "laser_wavelength": 488, "color": "00FF00"}}
 
-def test_load_channel_colors_via_keyword(mocker, tmp_dataset):
+def test_load_channel_colors_via_keyword(
+    mocker, 
+    tmp_dataset
+):
     mocker.patch("importlib.resources.files", return_value=tmp_dataset
     )
 
@@ -367,13 +418,19 @@ def test_load_channel_colors_via_keyword(mocker, tmp_dataset):
 
     assert result == {"0": {"label": "CH0"}}
 
-def test_load_channel_colors_keyword_missing(mocker, tmp_dataset):
+def test_load_channel_colors_keyword_missing(
+    mocker, 
+    tmp_dataset
+):
     mocker.patch("importlib.resources.files", return_value=tmp_dataset)
 
     with pytest.raises(FileNotFoundError):
         load_channel_colors("unknown")
 
-def test_load_channel_colors_keyword_multiple(mocker, tmp_dataset):
+def test_load_channel_colors_keyword_multiple(
+    mocker, 
+    tmp_dataset
+):
     (tmp_dataset / "default1.json").write_text("{}")
     (tmp_dataset / "default2.json").write_text("{}")
 
@@ -382,14 +439,17 @@ def test_load_channel_colors_keyword_multiple(mocker, tmp_dataset):
     with pytest.raises(FileNotFoundError):
         load_channel_colors("default")
 
-def test_write_ome_zarr_metadata_basic(mocker, meta_df):
+def test_write_ome_zarr_metadata_basic(
+    mocker, 
+    meta_df
+):
     fake_group = mocker.Mock()
     fake_group.name = "/raw"
     fake_group.attrs = {}
 
     # --- Mock channel colors ---
     mocker.patch(
-        "skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr.load_channel_colors",
+        MODULE + ".load_channel_colors",
         return_value={
             "0": {"label": "Ch0", "laser_wavelength": 488, "color": "00FF00"},
             "1": {"label": "Ch1", "laser_wavelength": 561, "color": "FF0000"},
@@ -397,7 +457,7 @@ def test_write_ome_zarr_metadata_basic(mocker, meta_df):
     )
 
     # --- Mock NgffImageMeta so it doesn't validate deeply ---
-    mocker.patch("skinnervation3d_fractal_tasks.tasks.mesospim_to_omezarr.NgffImageMeta")
+    mocker.patch(MODULE + ".NgffImageMeta")
 
     # --- Call function ---
     write_ome_zarr_metadata(

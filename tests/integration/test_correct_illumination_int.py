@@ -5,45 +5,21 @@ import anndata as ad
 import dask.array as da
 import zarr
 
-from mesospim_fractal_tasks.tasks.correct_flatfield import (
-    correct_flatfield,
-    collect_fovs
+from mesospim_fractal_tasks.tasks.correct_illumination import (
+    correct_illumination,
 )
 
-MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield"
+MODULE = "mesospim_fractal_tasks.tasks.correct_illumination"
 
-def test_collect_fovs_default():
-
-    example_zarr_path = Path("tests/data/ngff_example/my_image")
-    df = ad.read_zarr(example_zarr_path / "tables" / "FOV_ROI_table").to_df()
-    FOV_size = (round(df.iloc[0]["len_y_micrometer"] / 1.3), 
-                round(df.iloc[0]["len_x_micrometer"] / 1.3))
-    n_zplanes = 2
-
-    result = collect_fovs(
-        zarr_url=example_zarr_path,
-        channel_index=0,
-        FOV_list=None,
-        resolution_level=1,
-        pixel_sizes_yx=(1.3, 1.3),
-        n_zplanes=n_zplanes,
-        max_z=None
-    )
-
-    # Should return exactly n_zplanes slices
-    assert isinstance(result, np.ndarray)
-    assert result.shape[0] == n_zplanes
-
-    # Height/width match the computed ROI for FOV_0
-    assert result.shape[1] == FOV_size[0]
-    assert result.shape[2] == FOV_size[1]
-
-def test_correct_flatfield_main_output(tmp_dataset, mocker):
+def test_correct_illumination_main_output(
+    tmp_dataset, 
+    mocker
+):
     example_zarr_path = Path("tests/data/ngff_example")
     shutil.copytree(example_zarr_path, tmp_dataset / "ngff_example")
     tmp_zarr = tmp_dataset / "ngff_example" / "my_image"
 
-    out_tmp_zarr = tmp_dataset / "ngff_example" / "my_image_flatfield_corr"
+    out_tmp_zarr = tmp_dataset / "ngff_example" / "my_image_illum_corr"
     _ = zarr.open_group(out_tmp_zarr)
     shape = (1, 2, 540, 1280)
     for level in range(2):
@@ -59,19 +35,10 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
             overwrite=True,
             dimension_separator="/",
         )
-
+    fake_gain_map = {"ROI_0": 1.0, "ROI_1": 1.0}
     mocker.patch(
-        MODULE + ".collect_fovs",
-    )
-    mocker.patch(
-        MODULE + ".compute_empty_fov_models",
-    )
-    fake_FOV = np.arange(2*540*640, dtype=np.uint16).reshape(1, 2, 540, 640)
-    fake_dask = da.from_array(fake_FOV, 
-                              chunks=(1, 1, 540, 640))
-    mocker.patch(
-        MODULE + ".correct",
-        return_value=fake_dask,
+        MODULE + ".compute_global_normalisation",
+        return_value=fake_gain_map,
     )
     mocker.patch(
         MODULE + "._determine_optimal_contrast"
@@ -80,14 +47,12 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
         MODULE + "._update_omero_channels"
     )
 
-    out = correct_flatfield(
+    out = correct_illumination(
         zarr_url=str(tmp_zarr),
         init_args=dict(
             channel_name="DAPI",
             channel_index=0,
-            FOV_list=[0],
-            max_z=None,
-            saving_path=None,
+            n_FOVs=2
         )
     )
 
@@ -104,9 +69,10 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
     attrs = zarr.open_group(out_tmp_zarr, mode="r").attrs.asdict()
     assert "multiscales" in attrs
     assert "fractal_tasks" in attrs
-    assert "correct_flatfield" in attrs["fractal_tasks"]
+    assert "correct_illumination" in attrs["fractal_tasks"]
 
     level0 = da.from_zarr(out_tmp_zarr / "0")
     readback = level0[0:1, 0:2, 0:540, 0:640].compute()
+    original = da.from_zarr(tmp_zarr / "0")[0:1, 0:2, 0:540, 0:640].compute()
 
-    assert np.array_equal(readback, fake_FOV)
+    assert np.array_equal(readback, original)

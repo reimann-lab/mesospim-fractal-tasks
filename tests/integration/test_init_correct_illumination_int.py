@@ -1,10 +1,8 @@
-from mesospim_fractal_tasks.tasks.init_correct_flatfield import (
-    init_correct_flatfield)
+from mesospim_fractal_tasks.tasks.init_correct_illumination import (
+    init_correct_illumination)
 import shutil
 from pathlib import Path
 import zarr
-
-MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield"
 
 def test_integration_creates_zarr_pyramid(
     tmp_dataset
@@ -13,12 +11,12 @@ def test_integration_creates_zarr_pyramid(
     shutil.copytree(example_zarr_path, tmp_dataset / "ngff_example")
     tmp_zarr = tmp_dataset / "ngff_example" / "my_image"
 
-    out = init_correct_flatfield(
+    out = init_correct_illumination(
         zarr_urls=[str(tmp_zarr)],
         zarr_dir=str(tmp_dataset),
     )
 
-    new_zarr = tmp_zarr.parent / "raw_image_flatfield_corr"
+    new_zarr = tmp_zarr.parent / "raw_image_illum_corr"
     level0 = new_zarr / "0"
     level1 = new_zarr / "1"
 

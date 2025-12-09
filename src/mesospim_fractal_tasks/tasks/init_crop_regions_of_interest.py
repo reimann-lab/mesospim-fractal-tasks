@@ -1,5 +1,5 @@
 """
-Initialises the parallelisation list for `Crop Regions of Interest Task`.
+Initialises the parallelisation list for to crop regions of interest.
 """
 from pathlib import Path
 import logging

@@ -108,7 +108,7 @@ def init_correct_flatfield(
             shape=shape,
             chunks=raw_array.chunks,
             store=zarr.storage.FSStore(Path(zarr_path.parent, 
-                                            "raw_image_flatfield_corr", 
+                                            zarr_path.name + "_flatfield_corr", 
                                             str(level))),
             dtype=raw_array.dtype,
             overwrite=True,

@@ -84,6 +84,10 @@ docs = [
     "mkdocs-material",
 ]
 
+[project.scripts]
+copy-templates = "mesospim_fractal_tasks.cli.copy_templates:copy_templates"
+
+
 # https://docs.astral.sh/ruff
 [tool.ruff]
 line-length = 88

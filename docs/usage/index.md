@@ -5,8 +5,8 @@ This package provides two ways of running the mesoSPIM processing tasks dependin
 1. **Using Fractal Environment**  
    Provided that a full Fractal deployment is available, this is the most convenient approach when working with large datasets or when you want to leverage workflow automation and cluster execution.
 
-2. **Using shell commands**  
-   In the absence of the Fractal environment, each task can be run locally using shell command. This is useful for testing, development, debugging, or processing smaller datasets on a local machine.
+2. **Using local Python files**  
+   In the absence of the Fractal environment, each task can be run locally using python files. This is useful for testing, development, debugging, or processing smaller datasets on a local machine.
 
 Both methods use the same underlying task definitions. The main difference lies in how task execution is orchestrated.
 

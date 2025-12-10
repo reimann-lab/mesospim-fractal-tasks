@@ -22,7 +22,7 @@ This guide explains how to:
 
 ## Selecting MesoSPIM Tasks
 
-Normally, the mesospim_fractal_task task package should be available in the list of collections of tasks provdied by Fractal. In case it is not present, the task package can be manually collected by providing a wheel file of the current package.
+Normally, the mesospim-fractal-tasks task package should be available in the list of collections of tasks provided by Fractal. In case it is not present, the task package can be manually collected by providing a wheel file of the current package.
 
 Here is the procedure:
 1. On Fractal website, go to the **Tasks** section and click on **Add Collection**

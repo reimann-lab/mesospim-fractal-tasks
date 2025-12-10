@@ -14,7 +14,7 @@ TASK_LIST = [
     ConverterNonParallelTask(
         name="Convert mesoSPIM dataset to OME-ZARR",
         executable="tasks/mesospim_to_omezarr.py",
-        meta={"cpus_per_task": 1, "mem": 22000},
+        meta={"cpus_per_task": 1, "mem": 8000},
         category="Conversion",
         tags=["mesoSPIM", "Converter"],
         modality="lightsheet"

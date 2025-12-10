@@ -18,7 +18,7 @@ def test_integration_creates_zarr_pyramid(
         zarr_dir=str(tmp_dataset),
     )
 
-    new_zarr = tmp_zarr.parent / "raw_image_flatfield_corr"
+    new_zarr = tmp_zarr.parent / "my_image_flatfield_corr"
     level0 = new_zarr / "0"
     level1 = new_zarr / "1"
 

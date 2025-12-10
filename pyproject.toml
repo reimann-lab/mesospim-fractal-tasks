@@ -37,7 +37,7 @@ exclude = [
 
 # Project metadata (see https://peps.python.org/pep-0621)
 [project]
-name = "mesopsim-fractal-tasks"
+name = "mesospim-fractal-tasks"
 dynamic = ["version"]
 description = "Collection of Fractal tasks to convert and process mesoSPIM lightsheet data."
 readme = "README.md"

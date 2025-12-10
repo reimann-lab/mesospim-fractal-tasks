@@ -1,8 +1,7 @@
 """Contains the list of tasks available to fractal."""
 
 from fractal_task_tools.task_models import (
-    ConverterNonParallelTask, 
-    NonParallelTask,
+    ConverterNonParallelTask,
     ParallelTask,
     CompoundTask,
 )
@@ -15,7 +14,7 @@ TASK_LIST = [
     ConverterNonParallelTask(
         name="Convert mesoSPIM dataset to OME-ZARR",
         executable="tasks/mesospim_to_omezarr.py",
-        meta={"cpus_per_task": 1, "mem": 8000},
+        meta={"cpus_per_task": 1, "mem": 22000},
         category="Conversion",
         tags=["mesoSPIM", "Converter"],
         modality="lightsheet"

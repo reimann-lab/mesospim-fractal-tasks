@@ -46,7 +46,7 @@ def load_channel_colors(
         logger.info(f"Loading channel-specific information from {user_channels_path}.")
     else:
         keyword = user_channels_path
-        settings_dir = resources.files("skinnervation3d_fractal_tasks.settings")
+        settings_dir = resources.files("mesospim_fractal_tasks.settings")
         json_files = [file for file in settings_dir.iterdir() if ((file.is_file()) and 
                                                                   (keyword in file.name))]
         if len(json_files) != 1:
@@ -261,7 +261,7 @@ def read_metadata(
             - x/y_pos: position of the down-right corner of the image in micrometers
     """
 
-    logger.info(f"Reading metadata from {metadata_path}")
+    logger.info(f"Reading metadata from {metadata_path.name}")
 
     columns = ["laser", "intensity", "zoom", "filter", "shutter", "x_scale", "y_scale", 
                 "z_scale", "x_pos", "y_pos",
@@ -425,7 +425,7 @@ def convert_raw(
     for i, channel in enumerate(meta_df["channel"]):
         for file in files:
             if channel in file.stem:
-                logger.info(f"Converting {file} to zarr")
+                logger.info(f"Converting {file.name} to zarr")
                 mmap_file = np.memmap(file, dtype=np.uint16, mode="r", shape=tuple(zarr_shape[1:]))
                 for z in range(meta_df.loc[0, "z_n_pixels"]):
                     plane = mmap_file[z]
@@ -531,7 +531,7 @@ def convert_tiff(
     for i, channel in enumerate(meta_df["channel"]):
         for file in files:
             if channel in file.stem:
-                logger.info(f"Converting {file} to zarr")
+                logger.info(f"Converting {file.name} to zarr")
                 for z in range(meta_df.loc[0, "z_n_pixels"]):
                     plane = tiff.imread(file, key=z)
                     plane = plane[None, None, :, :]
@@ -626,10 +626,10 @@ def convert_h5_multitile(
         raise FileNotFoundError
     else:
         filename = files[0]
-        logger.info(f"Found {filename} in {file_dir}.")
+        logger.info(f"Found {filename.name} in {file_dir}.")
 
     nb_channels = len(meta_df["channel"].unique())
-    logger.info(f"Found {nb_channels} channels in {filename}")
+    logger.info(f"Found {nb_channels} channels in {filename.name}")
 
     tile_names = get_h5_structure(filename)
     if len(tile_names) % nb_channels != 0:
@@ -637,7 +637,7 @@ def convert_h5_multitile(
         raise ValueError
     else:
         nb_tiles = len(tile_names) // nb_channels
-        logger.info(f"Found {nb_tiles} tiles per channel in {filename}")
+        logger.info(f"Found {nb_tiles} tiles per channel in {filename.name}")
 
     z_scale = meta_df.loc[0, "z_scale"]
     y_scale = meta_df.loc[0, "y_scale"]
@@ -866,7 +866,7 @@ def mesospim_to_omezarr(
             raise FileNotFoundError
         else:
             metadata_path = metadata_path[0]
-            logger.info(f"Using {metadata_path} as metadata file.")
+            logger.info(f"Using {metadata_path.name} as metadata file.")
     else: 
         metadata_path = Path(zarr_dir, metadata_file)
         if not metadata_path.exists():

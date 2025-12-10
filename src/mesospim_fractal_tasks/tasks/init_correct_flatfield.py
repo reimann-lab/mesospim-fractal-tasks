@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 
 
 def group_by_channel(
-        zarr_url: str) -> dict[str, list[str]]:
+    zarr_path: Path
+) -> dict[str, list[str]]:
     """
     Create channel dictionaries for the zarr_urls.
 
@@ -34,20 +35,20 @@ def group_by_channel(
     and the index of the channel.
     
     Parameters:
-        zarr_url: Path to the OME-Zarr image to be processed.
+        zarr_path: Path to the OME-Zarr image to be processed.
 
     Returns:
         channel_dict (dict[str, list[str]]): Dictionary containing the channel 
             information.
     """
     channel_dict = {}
-    channels = get_omero_channel_list(image_zarr_path=zarr_url)
+    channels = get_omero_channel_list(image_zarr_path=zarr_path)
     if len(channels) == 0:
         raise ValueError("No channels found in the OME Zarr metadata.")
     for c, channel in enumerate(channels):
         if channel.index is None:
             channel.index = c
-        channel_dict[channel.label] = {"zarr_url": zarr_url,  
+        channel_dict[channel.label] = {"zarr_url": str(zarr_path),  
                                        "index": channel.index}
     return channel_dict
 

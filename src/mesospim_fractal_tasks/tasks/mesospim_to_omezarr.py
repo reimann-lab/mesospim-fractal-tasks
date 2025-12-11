@@ -568,28 +568,6 @@ def convert_tiff(
         table_attrs={"type": "roi_table"},
     )
 
-def get_h5_structure(
-    filename: str
-) -> list:
-    """
-    Get the structure of the HDF5 file that corresponds to the tiles.
-
-    Parameters:
-        filename (str): Path to the HDF5 file.
-
-    Returns:
-        structure (list): List containing the structure of the HDF5 file.
-    """
-    structure = []
-    with h5py.File(filename, "r") as f:
-        def get_name(name, obj):
-            if isinstance(obj, h5py.Dataset):
-                if len(obj.shape) == 3:
-                    structure.append(name)
-        f.visititems(get_name)
-
-    return structure
-
 def convert_h5_multitile(
     file_dir: str,
     pattern: str,
@@ -631,7 +609,7 @@ def convert_h5_multitile(
     nb_channels = len(meta_df["channel"].unique())
     logger.info(f"Found {nb_channels} channels in {filename.name}")
 
-    tile_names = [f"t00000/s{i:02}/0/cells" for i in range(len(meta_df))]#get_h5_structure(filename)
+    tile_names = [f"t00000/s{i:02}/0/cells" for i in range(len(meta_df))]
     if len(tile_names) % nb_channels != 0:
         logger.error(f"The number of tiles and the number of channels don't match.")
         raise ValueError

@@ -362,21 +362,14 @@ def test_convert_h5_multiple_files(
         )
 
 def test_convert_h5_tile_channel_mismatch_raises(
-    mocker
+    mocker,
+    tmp_dataset
 ):
-    dataset_dir = Path("tests", "data")
-    chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
-    image_group = {"raw_image": mocker.Mock()}
+    h5_file = tmp_dataset / "example.h5"
+    h5_file.touch()
 
-    meta_file = Path("tests", "data", "multitile_example.h5_meta.txt")
-    meta_df = read_metadata(meta_file, exclusion_list=[])
-
-    # Mock get_h5_structure so we control tile_names length
-    # e.g. 3 tiles total, but 2 channels → 3 % 2 != 0 → ValueError
-    mocker.patch(
-        MODULE + ".get_h5_structure",
-        return_value=["tile_0", "tile_1", "tile_2"],
-    )
+    # Mock meta_df to have mismatch between channels and number of tiles
+    meta_df = pd.DataFrame({"channel": ["ch0", "ch1", "ch1"], "value": [1, 2, 3]})
 
     chunk_sizes = mocker.Mock()
     chunk_sizes.get_chunksize.return_value = (1, 1, 1, 1)
@@ -384,10 +377,10 @@ def test_convert_h5_tile_channel_mismatch_raises(
 
     with pytest.raises(ValueError):
         convert_h5_multitile(
-            file_dir=dataset_dir,
+            file_dir=str(tmp_dataset),
             pattern="example",
             image_group=image_group,
-            image_path=str(dataset_dir / "out"),
+            image_path=str(tmp_dataset / "out"),
             meta_df=meta_df,
             chunk_sizes=chunk_sizes,
         )

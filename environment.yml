@@ -1,22 +1,24 @@
-name: mesospim-fractal-tasks
+name: mesospim-tasks
 channels:
   - conda-forge
+  - defaults
 dependencies:
-  - anndata[version=">=0.8.0,<0.11.0"]
-  - dask[version=">=2023.1.0,<=2025.10.0"]
-  - h5py
-  - imagecodecs
-  - napari
-  - pandas
-  - pyqt
   - python>=3.11,<3.13
+  - numpy
+  - scipy
+  - pandas
   - scikit-image
   - tifffile
+  - h5py
   - zarr<3
+  - dask>=2023.1.0,<=2025.10.0
+  - imagecodecs
+  - anndata>=0.8.0,<0.11.0
+  - napari
+  - pyqt
   - pip:
+    - ngio>=0.2.1
     - fractal-task-tools==0.0.12
     - fractal-tasks-core==1.5.3
     - multiview-stitcher==0.1.40
     - napari-ome-zarr-navigator
-
-prefix: "/Users/giro/miniconda3/envs/mesospim-fractal-tasks"

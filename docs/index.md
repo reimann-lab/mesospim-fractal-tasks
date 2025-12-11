@@ -1,15 +1,15 @@
 # MesoSPIM Fractal Tasks for Lightsheet Image Processing
 
 This package provides a collection of [**Fractal-compatible tasks**](https://www.biovisioncenter.uzh.ch/en/fractal.html) to process
-[**mesoSPIM 3D fluorescence microscopy data**](mesospim.org).
+[**mesoSPIM 3D fluorescence microscopy data**](https://mesospim.org).
 
 It currently offers tasks for:
 
 - Converting mesoSPIM raw 3D stacks to [**OME-Zarr**](https://ngff.openmicroscopy.org/) (currently in TIFF, H5, RAW)
-- Illumination correction:
-  - Flatfield
-  - Z-intensity correction
-  - Global intensity multi-tile optimization
+- Illumination correction:  
+    - Flatfield
+    - Z-intensity correction
+    - Global intensity multi-tile optimization
 - Multitile stitching
 - ROI cropping from large 3D OME-Zarr datasets
 

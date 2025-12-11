@@ -52,4 +52,4 @@ python run_<taskname>.py
 ```
 
 !!! tip 
-In case the list of parameters has been compromised, you can reiterate the copying step to retrieve the latest version of the template files.
+    In case the list of parameters has been compromised, you can reiterate the copying step to retrieve the latest version of the template files.

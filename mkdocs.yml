@@ -37,16 +37,24 @@ markdown_extensions:
 
 nav:
   - Home: index.md
- #- Installation: installation.md
+  - Installation: installation.md
   - Usage:
       - Overview: usage/index.md
       - Running Tasks in Fractal: usage/fractal_integration.md
-  #    - Running Tasks Locally: usage/local_run.md
+      - Running Tasks Locally: usage/local_run.md
   - Task Reference:
       - Convert MesoSPIM to OME-Zarr: tasks/mesospim_to_omezarr.md
       - Flatfield Correction: tasks/flatfield.md
       - Illumination Correction: tasks/global_optim.md
       - Stitching Multitile: tasks/stitching.md
       - ROI Cropping: tasks/roi_cropping.md
-  - Contributing: contributing.md
+  #- Contributing: contributing.md
   #- Changelog: changelog.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google

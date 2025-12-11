@@ -163,10 +163,13 @@
             "type": "array",
             "description": "List of FOVs to process. If provided, illumination profiles will be computed from this list of FOVs without BaSiCPy. Default: None."
           },
-          "max_z": {
-            "title": "Max Z",
-            "type": "integer",
-            "description": "Maximum number of z planes to process. If provided, illumination profiles will be computed using z planes up to max_z at the top and bottom of the FOVs (expecting empty FOVs) without BaSiCPy. Default: None."
+          "z_start_stop": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Z Start Stop",
+            "type": "array",
+            "description": "Two integers indicating the maximum number of z planes to process at the top and bottom of the 3D tile stack. If provided, illumination profiles will be computed using z planes up to z_start at the bottom and down to z_stop at the top of the FOVs (expecting empty FOVs) without BaSiCPy. If FOV_list is not empty the subvolumes will be extracted from the FOVs in FOV_list, otherwise from the four corner FOVs. Default: None."
           },
           "save_models": {
             "default": false,

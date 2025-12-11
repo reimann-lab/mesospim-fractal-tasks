@@ -629,7 +629,7 @@ def convert_h5_multitile(
 
     available_mem = (psutil.virtual_memory().available * 0.5)
     necessary_mem = (x_pixels * y_pixels * z_pixels * 2)
-    max_z_planes = max(z_pixels, int(z_pixels * available_mem / necessary_mem))
+    max_z_planes = min(z_pixels, int(z_pixels * available_mem / necessary_mem))
     logger.info(f"Based on available memory ({(available_mem/1e9):.2f}), the maximum "
                 f"number of z planes loaded at once is set to {max_z_planes}.")
 

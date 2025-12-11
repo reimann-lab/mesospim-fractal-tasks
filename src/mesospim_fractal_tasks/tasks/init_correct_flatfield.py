@@ -58,7 +58,7 @@ def init_correct_flatfield(
     zarr_urls: list[str],
     zarr_dir: str,
     FOV_list: Optional[list[int]] = None,
-    max_z: Optional[int] = None,
+    z_start_stop: Optional[list[int]] = None,
     save_models: bool = False
 ) -> dict[str, list[dict[str, Any]]]:
     """
@@ -76,9 +76,12 @@ def init_correct_flatfield(
             (standard argument for Fractal tasks, managed by Fractal server).
         FOV_list: List of FOVs to process. If provided, illumination profiles will be 
             computed from this list of FOVs without BaSiCPy. Default: None.
-        max_z: Maximum number of z planes to process. If provided, illumination profiles  
-            will be computed using z planes up to max_z at the top and bottom of the 
-            FOVs (expecting empty FOVs) without BaSiCPy. Default: None.
+        z_start_stop: Two integers indicating the maximum number of z planes to process 
+            at the top and bottom of the 3D tile stack. If provided, illumination 
+            profiles will be computed using z planes up to z_start at the bottom and 
+            down to z_stop at the top of the FOVs (expecting empty FOVs) without BaSiCPy.
+            If FOV_list is not empty the subvolumes will be extracted from the FOVs 
+            in FOV_list, otherwise from the four corner FOVs. Default: None.
         save_models: If `True`, illumination profiles will be saved in the parent folder
             of the currently processed OME-Zarr. Default: False.
 
@@ -116,7 +119,7 @@ def init_correct_flatfield(
             dimension_separator="/",
         )
 
-    if FOV_list is None and max_z is not None:
+    if FOV_list is None and z_start_stop is not None:
         FOV_list = []
         ROI_table = ad.read_zarr(zarr_path / "tables" / "FOV_ROI_table").to_df()
         max_y_FOV = ROI_table["y_micrometer"].max()
@@ -136,7 +139,7 @@ def init_correct_flatfield(
                 FOV_list.append(i)
 
     if save_models:
-        if FOV_list is not None or max_z is not None:
+        if FOV_list is not None or z_start_stop is not None:
             folder_path = zarr_path.parents[1] / "IllumModels"
         else:
             folder_path = zarr_path.parents[1] / "BaSiCPyModels"
@@ -157,7 +160,7 @@ def init_correct_flatfield(
                     channel_index=channel_dict["index"],
                     saving_path = folder_path,
                     FOV_list=FOV_list,
-                    max_z=max_z
+                    z_start_stop=z_start_stop
                 ),
             )
         )

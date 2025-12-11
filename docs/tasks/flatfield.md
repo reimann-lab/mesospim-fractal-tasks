@@ -5,7 +5,7 @@ It supports three different scenarios depending on what information is available
 
 
 ## Scenarios
-### 1. Flat-field image already available (recommended)
+### 1. Flatfield image available (recommended)
 If you already have a measured flat-field, you can provide it directly:  
 
 - The flat-field must be stored in a `profiles.npz` named under the key `flatfield`.  
@@ -16,7 +16,7 @@ The task loads then the flatfield image and uses it to correct the raw data. Thi
 
 ---
 
-### 2. No flat-field image → estimate from empty regions
+### 2. Flatfield image from empty regions (recommended)
 
 If your dataset contains **background tiles**, the task can estimate a flat-field from those.
 
@@ -40,7 +40,7 @@ If no tile index is provided, the task automatically uses **the four corner tile
 
 ---
 
-### 3. No empty regions → compute statistical flat-field (BaSiCPy)
+### 3. BaSiCPy Flatfield Model
 
 If your dataset contains **no empty tiles or background regions**, the task computes a flat-field using a **statistical illumination model (BaSiCPy)**.
 

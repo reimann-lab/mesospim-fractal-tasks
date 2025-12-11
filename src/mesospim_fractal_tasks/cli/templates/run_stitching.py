@@ -1,14 +1,23 @@
 from mesospim_fractal_tasks.tasks.stitch_with_multiview_stitcher import stitch_with_multiview_stitcher
 from mesospim_fractal_tasks.utils.stitching import StitchingChannelInputModel
 
-zarr_url = "Data/Multitile/IENFD25-5-9TH/IENFD25-5-9TH_restained_downsampled.zarr/raw_image_illum_corr"
-channel_label = "PGP9.5"
-registration_resolution_level = 1
-registration_on_z_proj = True
-transform_type = "translation"
-pre_registration_pruning_method = "keep_axis_aligned"
-fusion_chunksize = [64, 256, 256]
-n_batches = 4
+
+###############################################################################
+# Set the parameters of the task function
+
+zarr_url = "path/to/zarr/image"                         # e.g. "/data/zarr/sampleA.zarr"     
+channel_label = "DAPI"                                  # e.g. "DAPI" or "A01_C01"
+registration_resolution_level = 1                       # e.g. 1, recommended lowest resolution level
+registration_on_z_proj = True                           # e.g. True, recommended as first step
+transform_type = "translation"                          # e.g. "translation", "rigid", "similarity", "affine"
+pre_registration_pruning_method = "keep_axis_aligned"   # e.g. "keep_axis_aligned", "alternating_pattern", "shortest_paths_overlap_weighted", "otsu_threshold_on_overlap"
+fusion_chunksize = None                                 # e.g. Set smaller chunks than original image if memory is limited
+n_batches = 4                                           # e.g. 4, recommended for registration_on_z_proj=True
+
+###############################################################################
+
+
+
 
 if __name__ == "__main__":
     

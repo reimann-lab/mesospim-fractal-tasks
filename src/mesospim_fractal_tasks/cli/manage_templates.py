@@ -5,6 +5,48 @@ import typer
 
 app = typer.Typer()
 
+def copy_run_templates():
+    """
+    Copy local run templates into the chosen directory (default: current dir).
+    """
+
+    src = Path(__file__).parent / "templates"
+    dst = Path(".")
+
+    if not src.exists():
+        raise RuntimeError(f"Template directory not found: {src}")
+
+    for file in src.glob("run_*.py"):
+        target = dst / file.name
+        if target.exists():
+            print(f"⚠️ {file.name} already exists, overwriting...")
+        else:
+            print(f"Copied {file.name} → {target}")
+        shutil.copy(file, target)
+
+    print("Done! You can edit the run templates safely.")
+
+def copy_channel_template():
+    """
+    Copy local run templates into the chosen directory (default: current dir).
+    """
+
+    src = Path(__file__).parent / "templates"
+    dst = Path(".")
+
+    if not src.exists():
+        raise RuntimeError(f"Template directory not found: {src}")
+
+    source = src / "channel_template.json"
+    target = dst / "channel_template.json"
+    if target.exists():
+        print(f"⚠️ {target.name} already exists, overwriting...")
+    else:
+        print(f"Copied {source.name} → {target}")
+    shutil.copy(source, target)
+
+    print("Done! You can edit the channel template safely.")
+
 def set_channel_setting(
     json_file: str,
     setting_name: str = "default"
@@ -45,51 +87,7 @@ def set_channel_setting(
     print("Done! The new setting can now be used during conversion.")
 
 @app.command()
-def copy_run_templates():
-    """
-    Copy local run templates into the chosen directory (default: current dir).
-    """
-
-    src = Path(__file__).parent / "templates"
-    dst = Path(".")
-
-    if not src.exists():
-        raise RuntimeError(f"Template directory not found: {src}")
-
-    for file in src.glob("run_*.py"):
-        target = dst / file.name
-        if target.exists():
-            print(f"⚠️ {file.name} already exists, overwriting...")
-        else:
-            print(f"Copied {file.name} → {target}")
-        shutil.copy(file, target)
-
-    print("Done! You can edit the run templates safely.")
-
-@app.command()
-def copy_channel_template():
-    """
-    Copy local run templates into the chosen directory (default: current dir).
-    """
-
-    src = Path(__file__).parent / "templates"
-    dst = Path(".")
-
-    if not src.exists():
-        raise RuntimeError(f"Template directory not found: {src}")
-
-    source = src / "channel_template.json"
-    target = dst / "channel_template.json"
-    if target.exists():
-        print(f"⚠️ {target.name} already exists, overwriting...")
-    else:
-        print(f"Copied {source.name} → {target}")
-    shutil.copy(source, target)
-
-    print("Done! You can edit the channel template safely.")
-
-@app.command()
-def set_channel_setting_cli(
+def set_channel_setting_parser(
     json_file: str = typer.Argument(..., help="Path to JSON file."),
     setting_name: str = typer.Option("default", help="Name for this channel setting.")
 ):
@@ -98,5 +96,5 @@ def set_channel_setting_cli(
     """
     set_channel_setting(json_file, setting_name)
 
-def main():
+def set_channel_setting_cli():
     app()

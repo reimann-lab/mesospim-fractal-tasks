@@ -39,7 +39,6 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage:
-      - Overview: usage/index.md
       - Running Tasks in Fractal: usage/fractal_integration.md
       - Running Tasks Locally: usage/local_run.md
   - Task Reference:

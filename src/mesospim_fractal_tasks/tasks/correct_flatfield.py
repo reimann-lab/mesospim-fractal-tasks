@@ -168,7 +168,7 @@ def collect_fovs(
     resolution_level: int,
     pixel_sizes_yx: tuple[float, float],
     n_zplanes: int,
-    z_start_end: Optional[tuple[int, int]],
+    z_levels: Optional[tuple[int, int]],
 ) -> np.ndarray:
     """
     Collect FOVs.
@@ -184,7 +184,7 @@ def collect_fovs(
         pixel_sizes_yx (tuple[float, float]): Tuple of pixel sizes in y and x 
             directions.
         n_zplanes (int): Maximum number of z-planes to collect.
-        z_start_end (Optional[tuple[int, int]): Max z level of z-planes to collect 
+        z_levels (Optional[tuple[int, int]): Max z level of z-planes to collect 
             (top and bottom).
     
     Returns:
@@ -201,10 +201,10 @@ def collect_fovs(
             "that are not present in the FOV_ROI_table.")
         logger.info(f"Collecting {n_zplanes} empty FOVs from {FOV_list}...")
         n_FOVs = len(FOV_list)
-        if z_start_end is not None:
-            if z_start_end[0] > z_start_end[1]:
-                z_start_end = (z_start_end[1], z_start_end[0])
-            min_z_subvolume_size = min(z_start_end[0], (z_size - z_start_end[1]))
+        if z_levels is not None:
+            if z_levels[0] > z_levels[1]:
+                z_levels = (z_levels[1], z_levels[0])
+            min_z_subvolume_size = min(z_levels[0], (z_size - z_levels[1]))
             if n_FOVs * min_z_subvolume_size < (n_zplanes // 2):
                 n_zplanes = (n_FOVs * min_z_subvolume_size)
                 logger.warning("Number of z planes provided and max_z are not congruent"
@@ -230,10 +230,10 @@ def collect_fovs(
         if i_FOV in FOV_list:
             logger.info(f"Collecting {n_zplanes_per_FOV} z planes from FOV stack "
                         f"{i_FOV}.")
-            if z_start_end is not None:
-                z_idxs = np.random.randint(0, z_start_end[0], max(n_zplanes_per_FOV, 1))
+            if z_levels is not None:
+                z_idxs = np.random.randint(0, z_levels[0], max(n_zplanes_per_FOV, 1))
                 z_idxs = np.concatenate([z_idxs, 
-                                         np.random.randint(z_size-z_start_end[1], 
+                                         np.random.randint(z_size-z_levels[1], 
                                                            z_size,
                                                            max(n_zplanes_per_FOV, 1))])
             else:
@@ -454,7 +454,7 @@ def correct_flatfield(
         resolution_level=resolution_level,
         pixel_sizes_yx=pxl_sizes_yx,
         n_zplanes=n_zplanes,
-        z_start_end=init_args["z_start_end"],
+        z_levels=init_args["z_levels"],
     )
     if models_folder is None:
         if FOV_list is not None:
@@ -529,7 +529,7 @@ def correct_flatfield(
                         advanced_basicpy_model_params),
                     input_ROI_table=input_ROI_table,
                     FOV_list=init_args["FOV_list"],
-                    z_start_end=init_args["z_start_end"],
+                    z_levels=init_args["z_levels"],
                     saving_path=init_args["saving_path"]
                 )
             )

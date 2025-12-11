@@ -43,7 +43,7 @@ def test_init_correct_flatfield_simple(
     assert item["init_args"]["channel_name"] == "Ch0"
     assert item["init_args"]["channel_index"] == 0
     assert item["init_args"]["FOV_list"] is None
-    assert item["init_args"]["max_z"] is None
+    assert item["init_args"]["z_levels"] is None
 
 def test_init_correct_flatfield_max_z_logic(
     mocker, 
@@ -52,13 +52,13 @@ def test_init_correct_flatfield_max_z_logic(
     out = init_correct_flatfield(
         zarr_urls=["fake.zarr"],
         zarr_dir="unused",
-        max_z=5,
+        z_levels=[5, 30],
     )
 
     args = out["parallelization_list"][0]["init_args"]
 
     assert sorted(args["FOV_list"]) == [0,2,6,8]
-    assert args["max_z"] == 5
+    assert args["z_levels"] == [5, 30]
 
 def test_save_models_creates_correct_folder_name(
     mocker, 
@@ -84,7 +84,7 @@ def test_save_models_creates_correct_folder_name(
         zarr_urls=[str(fake_zarr)],
         zarr_dir=str(tmp_dataset),
         save_models=True,
-        max_z=5
+        z_levels=[5, 10]
     )
 
     model_path = tmp_dataset / "IllumModels" / "Ch0"

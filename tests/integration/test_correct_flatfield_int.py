@@ -27,7 +27,7 @@ def test_collect_fovs_default():
         resolution_level=1,
         pixel_sizes_yx=(1.3, 1.3),
         n_zplanes=n_zplanes,
-        max_z=None
+        z_levels=None
     )
 
     # Should return exactly n_zplanes slices
@@ -86,7 +86,7 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
             channel_name="DAPI",
             channel_index=0,
             FOV_list=[0],
-            max_z=None,
+            z_levels=None,
             saving_path=None,
         )
     )

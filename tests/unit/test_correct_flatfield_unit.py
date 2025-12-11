@@ -24,13 +24,13 @@ def test_collect_fovs_with_fov_list(
         resolution_level=0,
         pixel_sizes_yx=(1, 1),
         n_zplanes=n_zplanes,
-        max_z=None,
+        z_levels=None,
     )
     assert isinstance(out, np.ndarray)
     assert out.shape[0] == n_zplanes
     assert out.shape == (2, 20, 20)
 
-def test_collect_fovs_with_max_z(
+def test_collect_fovs_with_z_levels(
     mock_flatfield_env
 ):
 
@@ -43,7 +43,7 @@ def test_collect_fovs_with_max_z(
         resolution_level=0,
         pixel_sizes_yx=(1., 1.),
         n_zplanes=n_zplanes,
-        max_z=2,
+        z_levels=(2, 3),
     )
 
     # Should return exactly n_zplanes slices
@@ -62,7 +62,7 @@ def test_collect_fovs_assert_fov_list_invalid():
             resolution_level=0,
             pixel_sizes_yx=(1.0, 1.0),
             n_zplanes=2,
-            max_z=None
+            z_levels=None
         )
 
 def test_correct_flatfield_uses_empty_fov_models(
@@ -79,7 +79,7 @@ def test_correct_flatfield_uses_empty_fov_models(
         channel_name="test",
         channel_index=0,
         FOV_list=[0],       # << triggers compute_empty_fov_models
-        max_z=None,
+        z_levels=None,
         saving_path=None,
     )
 
@@ -105,7 +105,7 @@ def test_correct_flatfield_uses_basicpy_models(
         channel_name="test",
         channel_index=0,
         FOV_list=None,     # << triggers compute_basicpy_models
-        max_z=None,
+        z_levels=None,
         saving_path=None,
     )
 
@@ -141,7 +141,7 @@ def test_correct_flatfield_loads_npz(
         channel_name="testchannel",
         channel_index=0,
         FOV_list=[0],
-        max_z=None,
+        z_levels=None,
         saving_path=None,
     )
 
@@ -173,7 +173,7 @@ def test_correct_flatfield_missing_flatfield_raises(
         channel_name="testchannel",
         channel_index=0,
         FOV_list=[0],
-        max_z=None,
+        z_levels=None,
         saving_path=None,
     )
 

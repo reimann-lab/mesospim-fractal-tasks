@@ -88,8 +88,8 @@ docs = [
 
 [project.scripts]
 copy-run-templates = "mesospim_fractal_tasks.cli.manage_templates:copy_run_templates"
-copy-channel-template = "mesospim_fractal_tasks.cli.manage_templates:copy_channel_template"
-set-channel-setting = "mesospim_fractal_tasks.cli.manage_templates:set_channel_setting"
+copy-channel-template = "mesospim_fractal_tasks.manage_templates.cli:copy_channel_template"
+set-channel-setting = "mesospim_fractal_tasks.cli.manage_templates:set_channel_setting_cli"
 
 
 # https://docs.astral.sh/ruff

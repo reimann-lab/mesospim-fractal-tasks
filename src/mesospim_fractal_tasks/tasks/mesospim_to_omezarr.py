@@ -631,7 +631,7 @@ def convert_h5_multitile(
     nb_channels = len(meta_df["channel"].unique())
     logger.info(f"Found {nb_channels} channels in {filename.name}")
 
-    tile_names = get_h5_structure(filename)
+    tile_names = [f"t00000/s{i:02}/0/cells" for i in range(len(meta_df))]#get_h5_structure(filename)
     if len(tile_names) % nb_channels != 0:
         logger.error(f"The number of tiles and the number of channels don't match.")
         raise ValueError
@@ -799,19 +799,22 @@ def mesospim_to_omezarr(
             (standard argument for Fractal tasks, managed by Fractal server).
         pattern (str): Common pattern to identify which files in the dataset directory 
             are to be converted (for example: if the files are image_name1.tiff, 
-            image_name2.tiff, ... then pattern = image_name).
+            image_name2.tiff, ... then pattern = image_name). Default: "".
         extension (str): File extension of the files to convert (currently support TIFF, 
             raw and H5 format). Default: "h5".
         zarr_name (Optional[str]): Name of the OME-Zarr to create/open. If not provided,
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
             overwriting or not of the image if it exists.
-        image_name (str): Name of the new image to be created. Default: 'raw_image'.
-        metadata_file (Optional[str]): Name of the metadata file. Note: if not provided,
+        image_name (Optional[str]): Name of the new image to be created. 
+            Default: 'raw_image'.
+        metadata_file (Optional[str]): Name of the metadata file. It is expected to be
+            in the same folder as the acquisition files. Note: if not provided,
             a _meta.txt will be searched using the provided pattern.
-        channel_color_file (str): Path to the JSON file or keyword identifying the JSON 
-            file containing the channel colors information. 
-        exclusion_list list[int]]: List of tiles to exclude from being converted, e.g.
+        channel_color_file (str): Path to a JSON file or keyword identifying the JSON 
+            file among provided defaults containing the channel colors information. 
+            Default: "default".
+        exclusion_list (list[int]): List of tiles to exclude from being converted, e.g.
             empty signal tiles.
         num_levels (int): Number of pyramid levels (including the full resolution level, 
             so if no pyramid, then num_levels=1).

@@ -27,7 +27,7 @@
             "default": "",
             "title": "Pattern",
             "type": "string",
-            "description": "Common pattern to identify which files in the dataset directory are to be converted (for example: if the files are image_name1.tiff, image_name2.tiff, ... then pattern = image_name)."
+            "description": "Common pattern to identify which files in the dataset directory are to be converted (for example: if the files are image_name1.tiff, image_name2.tiff, ... then pattern = image_name). Default: \"\"."
           },
           "extension": {
             "default": "h5",
@@ -48,13 +48,13 @@
           "metadata_file": {
             "title": "Metadata File",
             "type": "string",
-            "description": "Name of the metadata file. Note: if not provided, a _meta.txt will be searched using the provided pattern."
+            "description": "Name of the metadata file. It is expected to be in the same folder as the acquisition files. Note: if not provided, a _meta.txt will be searched using the provided pattern."
           },
           "channel_color_file": {
             "default": "default",
             "title": "Channel Color File",
             "type": "string",
-            "description": "Path to the JSON file or keyword identifying the JSON file containing the channel colors information. "
+            "description": "Path to a JSON file or keyword identifying the JSON file among provided defaults containing the channel colors information. Default: \"default\"."
           },
           "exclusion_list": {
             "default": [],
@@ -63,7 +63,7 @@
             },
             "title": "Exclusion List",
             "type": "array",
-            "description": "Missing description"
+            "description": "List of tiles to exclude from being converted, e.g. empty signal tiles."
           },
           "num_levels": {
             "default": 6,

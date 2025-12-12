@@ -37,8 +37,9 @@ def estimate_available_memory(
         int: Estimated available memory in bytes.
     """
     slurm_mem_per_node = os.environ.get("SLURM_MEM_PER_NODE")
+    logger.info(f"SLURM_MEM_PER_NODE: {slurm_mem_per_node}")
     if slurm_mem_per_node is not None:
-        slurm_mem_per_node = int(slurm_mem_per_node)
+        slurm_mem_per_node = int(slurm_mem_per_node) * 1024
         nb_cpus = os.environ.get("SLURM_CPUS_ON_NODE")
         if nb_cpus is None:
             nb_cpus = 1

@@ -18,6 +18,7 @@ import zarr
 import tifffile as tiff
 import h5py
 import psutil
+import os
 
 from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
 from mesospim_fractal_tasks import __version__, __commit__
@@ -27,6 +28,25 @@ __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__
 import logging
 logger = logging.getLogger(__name__)
 
+def estimate_available_memory(
+) -> int:
+    """
+    Estimate the available memory on the system, whether it is SLURM or not.
+
+    Returns:
+        int: Estimated available memory in bytes.
+    """
+    slurm_mem_per_node = int(os.environ.get("SLURM_MEM_PER_NODE"))
+    if slurm_mem_per_node != "":
+        nb_cpus = int(os.environ.get("SLURM_CPUS_ON_NODE"))
+        available_mem = slurm_mem_per_node * nb_cpus
+    else:
+        available_mem = psutil.virtual_memory().available
+    available_fraction = available_mem * 0.33
+    if available_fraction < 1e9:
+        logger.warning(f"Available memory is less than 1GB. Consider increasing "
+                       f"the available memory for the task.")
+    return available_fraction
 
 def load_channel_colors(
     user_channels_path: str = "default"
@@ -627,7 +647,7 @@ def convert_h5_multitile(
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0] 
 
-    available_mem = (psutil.virtual_memory().available * 0.5)
+    available_mem = estimate_available_memory()
     necessary_mem = (x_pixels * y_pixels * z_pixels * 2)
     max_z_planes = min(z_pixels, int(z_pixels * available_mem / necessary_mem))
     logger.info(f"Based on available memory ({(available_mem/1e9):.2f}), the maximum "

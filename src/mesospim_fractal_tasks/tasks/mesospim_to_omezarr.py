@@ -28,7 +28,7 @@ __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__
 import logging
 logger = logging.getLogger(__name__)
 
-def estimate_available_memory(
+def estimate_available_memory(mem_fraction: float = 0.3
 ) -> int:
     """
     Estimate the available memory on the system, whether it is SLURM or not.
@@ -49,7 +49,7 @@ def estimate_available_memory(
         available_mem = slurm_mem_per_node * nb_cpus
     else:
         available_mem = psutil.virtual_memory().available
-    available_fraction = available_mem * 0.33
+    available_fraction = available_mem * mem_fraction
     if available_fraction < 1e9:
         logger.warning(f"Available memory is less than 1GB. Consider increasing "
                        f"the available memory for the task.")
@@ -601,7 +601,8 @@ def convert_h5_multitile(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: ChunkSizes, 
+    mem_fraction: float = 0.3
 ) -> None:
     """
     Convert tiles stored in an h5 file that matches the pattern in provided directory 
@@ -654,7 +655,7 @@ def convert_h5_multitile(
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0] 
 
-    available_mem = estimate_available_memory()
+    available_mem = estimate_available_memory(mem_fraction=mem_fraction)
     necessary_mem = (x_pixels * y_pixels * z_pixels * 2)
     max_z_planes = min(z_pixels, int(z_pixels * available_mem / necessary_mem))
     logger.info(f"Based on available memory ({(available_mem/1e9):.2f}), the maximum "
@@ -794,7 +795,8 @@ def mesospim_to_omezarr(
     num_levels: int = 6,
     coarsening_factor: int = 2,
     chunksize: tuple[int, int, int] = (32, 1024, 1024),
-    overwrite: bool = True
+    overwrite: bool = True,
+    mem_fraction: float = 0.3
 ) -> dict[str, Any]:
     """
     Convert mesoSPIM data (TIFFs or H5) to OME-NGFF zarr array.
@@ -828,6 +830,8 @@ def mesospim_to_omezarr(
         coarsening_factor (int): Coarsening factor to apply to the pyramid. Default: 2.
         overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. 
             Default: True.
+        mem_fraction (float): Fraction of available memory to use for conversion. 
+            Default: 0.3
 
     Returns:
         None
@@ -891,7 +895,7 @@ def mesospim_to_omezarr(
     chunk_sizes.y = chunksize[1]
     chunk_sizes.x = chunksize[2]
     convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, 
-               chunk_sizes)
+               chunk_sizes, mem_fraction=mem_fraction)
 
     # Build the pyramid
     build_pyramid(

@@ -391,7 +391,8 @@ def convert_raw(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: ChunkSizes,
+    mem_fraction: float = 0.3
 ) -> None:
     """
     Convert raw files that matches the basename in provided directory to zarr.
@@ -496,7 +497,8 @@ def convert_tiff(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: ChunkSizes,
+    mem_fraction: float = 0.3
 ) -> None:
     """
     Convert tiff files that matches the basename in provided directory to zarr.

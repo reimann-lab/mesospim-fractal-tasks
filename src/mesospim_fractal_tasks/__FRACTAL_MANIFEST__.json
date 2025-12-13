@@ -105,6 +105,12 @@
             "title": "Overwrite",
             "type": "boolean",
             "description": "Whether to overwrite OME-Zarr image if it already exists. Default: True."
+          },
+          "mem_fraction": {
+            "default": 0.3,
+            "title": "Mem Fraction",
+            "type": "number",
+            "description": "Fraction of available memory to use for conversion. Default: 0.3"
           }
         },
         "required": [

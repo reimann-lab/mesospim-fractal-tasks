@@ -8,6 +8,16 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+class FusionChunkSize(BaseModel):
+    """
+    Chunksize for the dimension (Z, Y, X) to use when performing 
+    the fusion in the stitching task.
+    """
+    z: int
+    y: int
+    x: int
+
 class IlluminationModel(BaseModel):
     """
     Illumination correction profiles.

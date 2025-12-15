@@ -570,6 +570,30 @@
       },
       "args_schema_parallel": {
         "$defs": {
+          "FusionChunkSize": {
+            "description": "Chunksize for the dimension (Z, Y, X) to use when performing ",
+            "properties": {
+              "z": {
+                "title": "Z",
+                "type": "integer"
+              },
+              "y": {
+                "title": "Y",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "z",
+              "y",
+              "x"
+            ],
+            "title": "FusionChunkSize",
+            "type": "object"
+          },
           "StitchingChannelInputModel": {
             "description": "Channel input for stitching.",
             "properties": {
@@ -629,21 +653,12 @@
             "description": "Missing description"
           },
           "fusion_chunksize": {
-            "maxItems": 3,
-            "minItems": 3,
-            "prefixItems": [
+            "allOf": [
               {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
+                "$ref": "#/$defs/FusionChunkSize"
               }
             ],
             "title": "Fusion Chunksize",
-            "type": "array",
             "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. If None, the chunksize of the raw image is used. In case of registration_on_z_proj=True, chunksize for the Z dimension is set to the number of z planes."
           }
         },

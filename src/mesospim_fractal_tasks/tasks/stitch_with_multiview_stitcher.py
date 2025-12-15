@@ -3,7 +3,7 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional
 
 import anndata as ad
 import numpy as np
@@ -23,6 +23,7 @@ from mesospim_fractal_tasks.utils.stitching import (
     get_tiles_from_sim,
     patched_get_sim_from_array
 )
+from mesospim_fractal_tasks.utils.models import FusionChunkSize
 si_utils.get_sim_from_array = patched_get_sim_from_array
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -38,7 +39,7 @@ def stitch_with_multiview_stitcher(
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Optional[Tuple[int, int, int]] = None,
+    fusion_chunksize: Optional[FusionChunkSize] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 
@@ -153,6 +154,8 @@ def stitch_with_multiview_stitcher(
 
     if fusion_chunksize is None:
         fusion_chunksize = original_chunksize[-3:]
+    else:
+        fusion_chunksize = (fusion_chunksize.z, fusion_chunksize.y, fusion_chunksize.x)
     logger.info(f"Fusion Chunk size set to: {fusion_chunksize}.")
     
     if registration_resolution_level == 0 and not registration_on_z_proj:

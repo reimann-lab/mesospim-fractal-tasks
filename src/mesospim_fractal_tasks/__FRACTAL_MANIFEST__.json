@@ -13,7 +13,8 @@
       "executable_non_parallel": "tasks/mesospim_to_omezarr.py",
       "meta_non_parallel": {
         "cpus_per_task": 1,
-        "mem": 8000
+        "mem": 8000,
+        "time": "2-00:00:00"
       },
       "args_schema_non_parallel": {
         "additionalProperties": false,
@@ -105,12 +106,6 @@
             "title": "Overwrite",
             "type": "boolean",
             "description": "Whether to overwrite OME-Zarr image if it already exists. Default: True."
-          },
-          "mem_fraction": {
-            "default": 0.3,
-            "title": "Mem Fraction",
-            "type": "number",
-            "description": "Fraction of available memory to use for conversion. Default: 0.3"
           }
         },
         "required": [
@@ -142,8 +137,8 @@
       "executable_non_parallel": "tasks/init_correct_flatfield.py",
       "executable_parallel": "tasks/correct_flatfield.py",
       "meta_parallel": {
-        "cpus_per_task": 4,
-        "mem": 8000
+        "cpus_per_task": 1,
+        "mem": 16000
       },
       "args_schema_non_parallel": {
         "additionalProperties": false,
@@ -628,9 +623,19 @@
             "description": "Missing description"
           },
           "fusion_chunksize": {
-            "items": {
-              "type": "integer"
-            },
+            "maxItems": 3,
+            "minItems": 3,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
             "title": "Fusion Chunksize",
             "type": "array",
             "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. If None, the chunksize of the raw image is used. In case of registration_on_z_proj=True, chunksize for the Z dimension is set to the number of z planes."

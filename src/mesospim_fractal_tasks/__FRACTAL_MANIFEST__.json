@@ -493,6 +493,12 @@
             "type": "string",
             "description": "path to the directory where the OME-Zarr image is located and where the ROI coordinates table can be found. (standard argument for Fractal tasks, managed by Fractal server)."
           },
+          "crop_or_roi": {
+            "default": "roi",
+            "title": "Crop Or Roi",
+            "type": "string",
+            "description": "Whether the coordinates are for a crop or a ROI. If `crop`, the coordinates correspond to a crop of the full resolution image to remove empty space for example. A cropped_image will be output with adapted FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted. Default: `roi`."
+          },
           "roi_table_name": {
             "title": "Roi Table Name",
             "type": "string",
@@ -501,13 +507,13 @@
           "num_levels": {
             "title": "Num Levels",
             "type": "integer",
-            "description": "Number of pyramid levels to generate for the ROI image (including the full resolution image)."
+            "description": "Number of pyramid levels to generate for the ROI image (including the full resolution image). If not provided, the same multi-resolution pyramid size as the original image will be used. Default: None."
           },
           "coarsening_xy": {
             "default": 2,
             "title": "Coarsening Xy",
             "type": "integer",
-            "description": "Coarsening factor in XY for the ROI image. Optional, if different from the coarsening factor used for the full resolution image."
+            "description": "Coarsening factor in XY for the ROI image. Optional, if different from the coarsening factor used for the full resolution image. Default: 2."
           }
         },
         "required": [

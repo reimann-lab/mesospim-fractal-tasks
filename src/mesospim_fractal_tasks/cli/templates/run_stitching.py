@@ -5,14 +5,14 @@ from mesospim_fractal_tasks.utils.stitching import StitchingChannelInputModel
 ###############################################################################
 # Set the parameters of the task function
 
-zarr_url = "path/to/zarr/image"                         # e.g. "/data/zarr/sampleA.zarr"     
-channel_label = "DAPI"                                  # e.g. "DAPI" or "A01_C01"
-registration_resolution_level = 1                       # e.g. 1, recommended lowest resolution level
-registration_on_z_proj = True                           # e.g. True, recommended as first step
-transform_type = "translation"                          # e.g. "translation", "rigid", "similarity", "affine"
-pre_registration_pruning_method = "keep_axis_aligned"   # e.g. "keep_axis_aligned", "alternating_pattern", "shortest_paths_overlap_weighted", "otsu_threshold_on_overlap"
-fusion_chunksize = None                                 # e.g. Set smaller chunks than original image if memory is limited
-n_batches = 4                                           # e.g. 4, recommended for registration_on_z_proj=True
+zarr_url = "path/to/zarr/image"                             # e.g. "/data/zarr/sampleA.zarr/raw_image"     
+channel_label = "DAPI"                                      # e.g. "DAPI" or "A01_C01"
+registration_resolution_level = 1                           # e.g. 1, recommended lowest resolution level
+registration_on_z_proj = True                               # e.g. True, recommended as first step
+transform_type = "translation"                              # e.g. "translation", "rigid", "similarity", "affine"
+pre_registration_pruning_method = "keep_axis_aligned"       # e.g. "keep_axis_aligned", "alternating_pattern", "shortest_paths_overlap_weighted", "otsu_threshold_on_overlap"
+fusion_chunksize = None                                     # e.g. Set smaller chunks than original image if memory is limited
+n_batches = 4                                               # e.g. 4, recommended if memory always
 
 ###############################################################################
 

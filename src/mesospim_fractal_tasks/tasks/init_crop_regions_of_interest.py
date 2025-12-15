@@ -14,6 +14,7 @@ def init_crop_regions_of_interest(
     *,
     zarr_urls: list[str],
     zarr_dir: str,
+    crop_or_roi: str = "roi",
     roi_table_name: Optional[str] = None,
     num_levels: Optional[int] = None,
     coarsening_xy: int = 2,
@@ -33,12 +34,18 @@ def init_crop_regions_of_interest(
         zarr_dir: path to the directory where the OME-Zarr image is located and
             where the ROI coordinates table can be found.
             (standard argument for Fractal tasks, managed by Fractal server).
+        crop_or_roi: Whether the coordinates are for a crop or a ROI. If `crop`, 
+            the coordinates correspond to a crop of the full resolution image to remove
+            empty space for example. A cropped_image will be output with adapted
+            FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted.
+            Default: `roi`.
         roi_table_name: Name/identifier of the ROI coordinates table to identify 
             it in the `zarr_dir`. If not provided, the default `roi_coords` is used.
         num_levels: Number of pyramid levels to generate for the ROI image (including 
-            the full resolution image).
+            the full resolution image). If not provided, the same multi-resolution
+            pyramid size as the original image will be used. Default: None.
         coarsening_xy: Coarsening factor in XY for the ROI image. Optional, if different
-            from the coarsening factor used for the full resolution image.
+            from the coarsening factor used for the full resolution image. Default: 2.
 
     Returns:
         task_output: Dictionary for Fractal server that contains a
@@ -49,20 +56,17 @@ def init_crop_regions_of_interest(
         raise ValueError(
             "Error! Expected only one zarr_url for this task."
         )
-    zarr_url = zarr_urls[0]
-
-    logger.info(
-        f"Running {__name__} for {zarr_url}"
-    )
+    zarr_path = Path(zarr_urls[0])
+    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
 
     logger.info("Loading ROI coordinates table.")
     if roi_table_name is None:
         roi_table_name = "roi_coords"
     tables = []
-    for path in Path(zarr_dir).rglob(f"*{roi_table_name}*.csv"):
+    for path in Path(zarr_path.parent).rglob(f"*{roi_table_name}*.csv"):
         tables.append(path)
     if len(tables) != 1:
-        logger.error(f"Unique ROI coordinates table not found in {zarr_dir}.")
+        logger.error(f"Unique ROI coordinates table not found in {zarr_path.parent}.")
         raise FileNotFoundError
     roi_table = pd.read_csv(tables[0], index_col=0)
 
@@ -70,12 +74,18 @@ def init_crop_regions_of_interest(
     logger.info(f"Preparing parallelisation list for {nb_rois} ROIs.")
     parallelisation_list = []
     for roi_id, roi_row in roi_table.iterrows():
-        if nb_rois == 1:
-            logger.info(f"Only one ROI to crop, removing numbering...")
-            roi_id = roi_id[:-7]
+        if crop_or_roi == "crop":
+            if len(roi_table) != 1:
+                logger.error("Number of ROIs in table and crop_or_roi parameters are "
+                             "inconsistent. Table cannot have more than one ROI if "
+                             "crop_or_roi is set to 'crop'.")
+                raise ValueError
+            logger.info(f"Task set to produce a crop from original image to reduce size"
+                        " for example.")
+            roi_id = zarr_path.name + "_cropped"
         parallelisation_list.append(
             dict(
-                zarr_url=zarr_url,
+                zarr_url=str(zarr_path),
                 init_args=dict(
                     roi_id=roi_id,
                     roi_coords=roi_row.to_dict(),

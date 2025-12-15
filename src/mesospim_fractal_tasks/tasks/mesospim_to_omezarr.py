@@ -15,10 +15,9 @@ import numpy as np
 import pandas as pd
 from pydantic import validate_call
 import zarr
+import dask.array as da
 import tifffile as tiff
 import h5py
-import psutil
-import os
 
 from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
 from mesospim_fractal_tasks import __version__, __commit__
@@ -28,32 +27,6 @@ __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__
 import logging
 logger = logging.getLogger(__name__)
 
-def estimate_available_memory(mem_fraction: float = 0.3
-) -> int:
-    """
-    Estimate the available memory on the system, whether it is SLURM or not.
-
-    Returns:
-        int: Estimated available memory in bytes.
-    """
-    slurm_mem_per_node = os.environ.get("SLURM_MEM_PER_NODE")
-    logger.info(f"SLURM_MEM_PER_NODE: {slurm_mem_per_node}")
-    if slurm_mem_per_node is not None:
-        slurm_mem_per_node = int(slurm_mem_per_node) * 1024**2
-        nb_cpus = os.environ.get("SLURM_CPUS_ON_NODE")
-        if nb_cpus is None:
-            nb_cpus = 1
-            logger.warning(f"SLURM_CPUS_ON_NODE is not set. Assuming 1 CPU.")
-        else:
-            nb_cpus = int(nb_cpus)
-        available_mem = slurm_mem_per_node * nb_cpus
-    else:
-        available_mem = psutil.virtual_memory().available
-    available_fraction = available_mem * mem_fraction
-    if available_fraction < 1e9:
-        logger.warning(f"Available memory is less than 1GB. Consider increasing "
-                       f"the available memory for the task.")
-    return available_fraction
 
 def load_channel_colors(
     user_channels_path: str = "default"
@@ -603,8 +576,7 @@ def convert_h5_multitile(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes, 
-    mem_fraction: float = 0.3
+    chunk_sizes: ChunkSizes
 ) -> None:
     """
     Convert tiles stored in an h5 file that matches the pattern in provided directory 
@@ -655,13 +627,7 @@ def convert_h5_multitile(
     y_pixels = meta_df.loc[0, "y_n_pixels"]
     x_pixels = meta_df.loc[0, "x_n_pixels"]
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
-    final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0] 
-
-    available_mem = estimate_available_memory(mem_fraction=mem_fraction)
-    necessary_mem = (x_pixels * y_pixels * z_pixels * 2)
-    max_z_planes = min(z_pixels, int(z_pixels * available_mem / necessary_mem))
-    logger.info(f"Based on available memory ({(available_mem/1e9):.2f}), the maximum "
-                f"number of z planes loaded at once is set to {max_z_planes}.")
+    final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0]
 
     logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
     image_arr = zarr.create(
@@ -692,21 +658,15 @@ def convert_h5_multitile(
                 y_pixels = channel_df.iloc[t]["y_n_pixels"]
                 x_pixels = channel_df.iloc[t]["x_n_pixels"]
 
-                n_zslices = 0
                 with h5py.File(filename, "r") as f:
-                    while n_zslices < z_pixels:
-                        z_start = n_zslices
-                        z_end = min(z_start + max_z_planes, z_pixels)
-                        z_plane = f[tile_name][z_start:z_end,
-                                               :y_pixels,
-                                               :x_pixels]
-                        z_plane = z_plane[None, :, :, :]
-                        region = (slice(c, c+1), 
-                            slice(z_start, z_end), 
-                            slice(y_counter, y_counter + y_pixels), 
-                            slice(x_counter, x_counter + x_pixels))
-                        image_arr[region] = z_plane
-                        n_zslices += max_z_planes
+                    chunks = chunk_sizes.get_chunksize()[-3:]
+                    z_plane = da.from_array(f[tile_name], chunks=chunks)
+                    z_plane = z_plane[None, :, :, :]
+                    region = (slice(c, c+1), 
+                              slice(None), 
+                              slice(y_counter, y_counter + y_pixels), 
+                              slice(x_counter, x_counter + x_pixels))
+                    z_plane.to_zarr(image_arr, region=region, overwrite=True)
                 logger.info(f"Converted {tile_name} to zarr") 
                 
                 if c == 0:
@@ -797,8 +757,7 @@ def mesospim_to_omezarr(
     num_levels: int = 6,
     coarsening_factor: int = 2,
     chunksize: tuple[int, int, int] = (32, 1024, 1024),
-    overwrite: bool = True,
-    mem_fraction: float = 0.3
+    overwrite: bool = True
 ) -> dict[str, Any]:
     """
     Convert mesoSPIM data (TIFFs or H5) to OME-NGFF zarr array.
@@ -832,8 +791,6 @@ def mesospim_to_omezarr(
         coarsening_factor (int): Coarsening factor to apply to the pyramid. Default: 2.
         overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. 
             Default: True.
-        mem_fraction (float): Fraction of available memory to use for conversion. 
-            Default: 0.3
 
     Returns:
         None
@@ -896,8 +853,7 @@ def mesospim_to_omezarr(
     chunk_sizes.z = chunksize[0]
     chunk_sizes.y = chunksize[1]
     chunk_sizes.x = chunksize[2]
-    convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, 
-               chunk_sizes, mem_fraction=mem_fraction)
+    convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
 
     # Build the pyramid
     build_pyramid(

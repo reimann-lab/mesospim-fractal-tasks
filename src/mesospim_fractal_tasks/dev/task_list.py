@@ -14,7 +14,7 @@ TASK_LIST = [
     ConverterNonParallelTask(
         name="Convert mesoSPIM dataset to OME-ZARR",
         executable="tasks/mesospim_to_omezarr.py",
-        meta={"cpus_per_task": 1, "mem": 8000},
+        meta={"cpus_per_task": 1, "mem": 8000, "time": "2-00:00:00"},
         category="Conversion",
         tags=["mesoSPIM", "Converter"],
         modality="lightsheet"
@@ -25,7 +25,7 @@ TASK_LIST = [
         executable_init="tasks/init_correct_flatfield.py",
         executable="tasks/correct_flatfield.py",
         output_types=dict(flatfield_corrected=True),
-        meta={"cpus_per_task": 4, "mem": 8000},
+        meta={"cpus_per_task": 1, "mem": 16000},
         tags=["BaSiCPy", "Illumination", "Correction", "Flatfield", "Darkfield"],
         category="Image Processing",
         modality="lightsheet"

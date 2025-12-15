@@ -67,6 +67,10 @@ def init_correct_illumination(
         task_output: Dictionary for Fractal server that contains a
             parallelization list.
     """
+    if len(zarr_urls) != 1:
+        raise ValueError(
+            "Error! Expected only one zarr_url for this task."
+        )
     zarr_path = Path(zarr_urls[0])
     logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
 

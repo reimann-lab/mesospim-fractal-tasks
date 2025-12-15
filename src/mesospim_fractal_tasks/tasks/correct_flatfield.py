@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 def compute_baseline(
     empty_tiles: np.ndarray,
     flatfield: np.ndarray,
-    percentile: float = 50
+    percentile: float = 1
 ) -> float:
     """
     Estimate a global baseline offset using 90% intensity percentile (empty tiles) 

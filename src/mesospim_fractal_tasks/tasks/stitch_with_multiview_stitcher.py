@@ -38,7 +38,7 @@ def stitch_with_multiview_stitcher(
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Optional[list[int]] = None,
+    fusion_chunksize: Optional[tuple[int, int, int]] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 
@@ -99,6 +99,7 @@ def stitch_with_multiview_stitcher(
     )
     original_chunksize = xim_well_reg.data.chunksize
 
+
     # Determine whether to perform registration on maximum projection in Z
     z_dim = xim_well_reg.shape[1]
     if registration_on_z_proj:
@@ -142,18 +143,6 @@ def stitch_with_multiview_stitcher(
         raise ValueError(f"Error. Unknown transformation type: {transform_type}."
                          " Available types are 'translation', 'rigid', 'similarity', "
                          "'affine'.")
-    shifts = {
-        ip: {
-            dim: s
-            for dim, s in zip(
-                reg_spatial_dims,
-                param_utils.translation_from_affine(p.sel(t=0).data),
-            )
-        }
-        for ip, p in enumerate(params)
-        if not np.allclose(p.sel(t=0).data, np.eye(len(reg_spatial_dims) + 1))
-    }
-    logger.info(f"Obtained shifts: {shifts}")
     logger.info("Finished registration.")
 
     # Preparing for fusion
@@ -161,6 +150,10 @@ def stitch_with_multiview_stitcher(
     logger.info(f"Saving fused image to {output_zarr_path}") 
     output_zarr_temp = Path(output_zarr_path, "temp")
     output_zarr_final = Path(output_zarr_path, "0")
+
+    if fusion_chunksize is None:
+        fusion_chunksize = original_chunksize[-3:]
+    logger.info(f"Fusion Chunk size set to: {fusion_chunksize}.")
     
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
@@ -218,6 +211,7 @@ def stitch_with_multiview_stitcher(
         output_chunksize=fusion_chunksize_dict,
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
         output_zarr_url=output_zarr_temp,
+        blending_widths={"z": 1, "y": 966, "x": 566},
         batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/", 
                                                       "compressor": None}, 
                        "n_batch": n_batches},
@@ -240,11 +234,11 @@ def stitch_with_multiview_stitcher(
         dimension_separator="/",
     )
     for i in range(0, new_shape[-2], original_chunksize[-2] * n_batches):
-        for j in range(0, new_shape[-1], original_chunksize[-2] * n_batches):
+        for j in range(0, new_shape[-1], original_chunksize[-1] * n_batches):
             region = (slice(None), 
                       slice(None), 
                       slice(i, i+original_chunksize[-2] * n_batches), 
-                      slice(j, j+original_chunksize[-2] * n_batches))
+                      slice(j, j+original_chunksize[-1] * n_batches))
             rechunked_array = temp_array[region].rechunk(original_chunksize)
             da.to_zarr(rechunked_array, final_fused_arr, region=region)
     logger.info("Finished fusing tiles.")

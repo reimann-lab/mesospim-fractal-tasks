@@ -3,7 +3,7 @@
 import logging
 import shutil
 from pathlib import Path
-from typing import Union
+from typing import Tuple, Optional
 
 import anndata as ad
 import numpy as np
@@ -38,7 +38,7 @@ def stitch_with_multiview_stitcher(
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Union[tuple[int, int, int], None] = None,
+    fusion_chunksize: Optional[Tuple[int, int, int]] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 

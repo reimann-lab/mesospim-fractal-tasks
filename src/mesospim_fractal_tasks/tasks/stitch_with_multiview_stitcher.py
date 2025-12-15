@@ -38,7 +38,7 @@ def stitch_with_multiview_stitcher(
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Union[tuple[int, int, int], None],
+    fusion_chunksize: Union[tuple[int, int, int], None] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 

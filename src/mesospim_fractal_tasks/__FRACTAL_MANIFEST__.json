@@ -649,8 +649,7 @@
         },
         "required": [
           "zarr_url",
-          "channel",
-          "fusion_chunksize"
+          "channel"
         ],
         "type": "object",
         "title": "StitchWithMultiviewStitcher"

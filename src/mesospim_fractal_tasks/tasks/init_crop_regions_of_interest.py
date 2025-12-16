@@ -57,7 +57,8 @@ def init_crop_regions_of_interest(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
-    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
+    logger.info(f"Start task: `Crop Region of Interest (Initialisation)"
+                f" for {zarr_path.parent}/{zarr_path.name}")
 
     logger.info("Loading ROI coordinates table.")
     if roi_table_name is None:

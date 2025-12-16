@@ -2,6 +2,7 @@ import logging
 from pathlib import Path
 import zarr
 import dask.array as da
+import pandas as pd
 import numpy as np
 import anndata as ad
 from typing import Dict, Any
@@ -17,7 +18,23 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
 
 logger = logging.getLogger(__name__)
 
-def adapt_coordinates(start, end, dim, scale, table):
+def adapt_coordinates(
+    start, 
+    end, 
+    dim, 
+    scale, 
+    table
+) -> None:
+    """
+    Adapt the entries of the FOV ROI table for the given coordinates per dimension.
+
+    Parameters:
+        start (float): New start pixel coordinate.
+        end (float): New end pixel coordinate.
+        dim (str): Dimension to adapt.
+        scale (float): Pixel scale in um.
+        table (pd.DataFrame): Original FOV ROI Table to be adapted.
+    """
     new_start_um = start * scale
     new_end_um = end * scale
     table[f"pixel_size_{dim}"] = scale
@@ -25,7 +42,8 @@ def adapt_coordinates(start, end, dim, scale, table):
     table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"].clip(
         lower=0, upper=new_end_um)
     if dim != "z":
-        table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"] - new_start_um
+        table[f"{dim}_micrometer_original"] = (table[f"{dim}_micrometer_original"] - 
+                                               new_start_um)
         table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"].clip(
             lower=0, upper=new_end_um)
     dim_max = table[f"{dim}_micrometer"].max()
@@ -37,11 +55,30 @@ def adapt_coordinates(start, end, dim, scale, table):
     dim_micrometers = np.array(dim_micrometers)
     for r, row in table.iterrows():
         i = np.argwhere(dim_micrometers == row[f"{dim}_micrometer"])[0][0]
-        table.loc[r,f"len_{dim}_micrometer"] = dim_micrometers[i+1] - row[f"{dim}_micrometer"]
-        table.loc[r,f"{dim}_pixel"] = int(round(table.loc[r, f"len_{dim}_micrometer"] / scale))
+        table.loc[r,f"len_{dim}_micrometer"] = (dim_micrometers[i+1] - 
+                                                row[f"{dim}_micrometer"])
+        table.loc[r,f"{dim}_pixel"] = int(round(table.loc[r, f"len_{dim}_micrometer"] 
+                                                / scale))
     
-def adapt_roi_table(zarr_path, roi_path, coords, scale):
-    logger.info(f"Adapting FOV ROI table to crop for {roi_path}")
+def adapt_roi_table(
+    zarr_path, 
+    roi_path, 
+    coords, 
+    scale
+) -> pd.DataFrame:
+    """
+    Adapt the FOV ROI table to the new crop coordinates.
+
+    Parameters:
+        zarr_path (Path): Path to the OME-Zarr image.
+        roi_path (Path): Path to the ROI table.
+        coords (dict): Coordinates to adapt.
+        scale (dict): Pixel scale in um.
+
+    Returns:
+        pandas.DataFrame: Adaptated FOV ROI table.
+    """
+    logger.info(f"Adapting FOV ROI table to new crop coordinates for {roi_path}")
 
     # Load original table
     source_table = ad.read_zarr(zarr_path/ "tables" / "FOV_ROI_table").to_df()
@@ -56,7 +93,6 @@ def adapt_roi_table(zarr_path, roi_path, coords, scale):
 
     # Update index
     source_table.index = [f"FOV_{i}" for i in range(len(source_table))]
-    print(source_table)
     return source_table
 
 def check_binary_compatibility(
@@ -106,7 +142,8 @@ def crop_regions_of_interest(
             `init_crop_regions_of_interest`.
     """
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
+    logger.info(f"Start task: `Crop Region of Interest` "
+                f"for {zarr_path.parent}/{zarr_path.name}")
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image.")
@@ -161,13 +198,13 @@ def crop_regions_of_interest(
     logger.info(f"ROI {roi_id} saved!")
 
     # Copy NGFF metadata from the raw image to the roi image
-    logger.info(f"Copying NGFF metadata from {zarr_url} to {roi_path}")
+    logger.info(f"Copying NGFF metadata from {zarr_path.name} to {roi_path.name}")
     source_group = zarr.open_group(zarr_url, mode="r")
     source_attrs = source_group.attrs.asdict()
     roi_group = zarr.open(roi_path, mode="a")
     roi_group.attrs.put(source_attrs)
 
-    logger.info(f"Saving cropping metadata to {roi_path}")
+    logger.info(f"Saving cropping metadata to {roi_path.name}")
     roi_group = zarr.open(roi_path, mode="a")
     roi_group.attrs["crop_info"] = {
         "roi_id": roi_id,
@@ -197,7 +234,7 @@ def crop_regions_of_interest(
         fov_roi_table = adapt_roi_table(zarr_path, roi_path, coords, scale)
         
         # Write table
-        logger.info(f"Writing FOV ROI table for {roi_path}")
+        logger.info(f"Writing FOV ROI table for {roi_path.name}")
         fov_roi_table = prepare_FOV_ROI_table(fov_roi_table)
         write_table(
             zarr.open(roi_path, mode="a"),
@@ -208,7 +245,7 @@ def crop_regions_of_interest(
         )
 
     # Write well ROI table
-    logger.info(f"Writing well ROI table for {roi_path}")
+    logger.info(f"Writing well ROI table for {roi_path.name}")
     well_table = get_single_image_ROI(roi_arr.shape[1:], 
                                       scale) 
     write_table(
@@ -220,7 +257,7 @@ def crop_regions_of_interest(
     )
 
     # Write pyramid of resolution
-    logger.info(f"Building pyramid of resolution for {roi_path}")
+    logger.info(f"Building pyramid of resolution for {roi_path.name}")
     build_pyramid(
         zarrurl=roi_path,
         overwrite=True,

@@ -101,7 +101,7 @@ def stitch_with_multiview_stitcher(
     """
 
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: `Stitching with multiview stitcher` "
+    logger.info(f"Start task: `Stitching with Multiview Stitcher` "
                 f"for {zarr_path.parent}/{zarr_path.name}")
 
     # Parse and log several NGFF-image metadata attributes

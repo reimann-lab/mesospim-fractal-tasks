@@ -795,7 +795,8 @@ def mesospim_to_omezarr(
     Returns:
         None
     """
-    logger.info(f"Starting task {__name__}. Zarr Directory: {zarr_dir}")
+    logger.info(f"Start task: `MesoSPIM to OME-Zarr`. "
+                f"Zarr Directory set to: {zarr_dir}")
 
     # Check if the zarr directory exists
     if not Path(zarr_dir).exists():

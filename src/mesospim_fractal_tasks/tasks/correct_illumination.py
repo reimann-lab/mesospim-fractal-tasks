@@ -199,7 +199,8 @@ def correct_illumination(
 ) -> dict[str, Any]:
     
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
+    logger.info(f"Start task: `Illumination Correction` "
+                f"for {zarr_path.parent}/{zarr_path.name}")
     
     # Define new zarr path
     new_zarr_path = Path(zarr_path.parent, zarr_path.name+"_illum_corr")

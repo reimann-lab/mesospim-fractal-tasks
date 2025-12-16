@@ -72,7 +72,8 @@ def init_correct_illumination(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
-    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
+    logger.info(f"Start task: `Illumination Correction (Initialisation)` "
+                f"for {zarr_path.parent}/{zarr_path.name}")
 
     logger.info(
         f"Calculating illumination profiles (flatfield/darkfield) based on "

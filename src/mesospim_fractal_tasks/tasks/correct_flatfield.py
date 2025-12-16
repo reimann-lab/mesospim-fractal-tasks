@@ -421,7 +421,8 @@ def correct_flatfield(
             during import.
     """
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
+    logger.info(f"Start task: `Flatfield Correction` "
+                f"for {zarr_path.parent}/{zarr_path.name}")
     
     new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     if not new_zarr_path.exists():

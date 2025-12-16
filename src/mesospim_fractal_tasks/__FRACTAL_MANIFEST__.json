@@ -458,12 +458,6 @@
     },
     {
       "name": "Crop Regions of Interest",
-      "input_types": {
-        "is_roi": false
-      },
-      "output_types": {
-        "is_roi": true
-      },
       "category": "Image Formatting",
       "modality": "lightsheet",
       "tags": [
@@ -549,10 +543,10 @@
     {
       "name": "Stitch with Multiview Stitcher",
       "input_types": {
-        "is_stitched": false
+        "stitched": false
       },
       "output_types": {
-        "is_stitched": true
+        "stitched": true
       },
       "category": "Image Processing",
       "modality": "lightsheet",

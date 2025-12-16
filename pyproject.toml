@@ -12,16 +12,12 @@ source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mesospim_fractal_tasks"]
-
-[tool.hatch.build]
 exclude = [
+    "data",
     "Data",
     "docs",
+    "tests",
     "examples",
-    ".git",
-    ".venv",
-    "build",
-    "dist",
     "*.zarr",
     "*.tif",
     "*.h5",
@@ -33,6 +29,16 @@ exclude = [
     "*.jpeg",
     "*.mp4",
     "*.mov",
+]
+
+[tool.hatch.build]
+exclude = [
+    "data",
+    "Data",
+    ".git",
+    ".venv",
+    "build",
+    "dist"
 ]
 
 # Project metadata (see https://peps.python.org/pep-0621)

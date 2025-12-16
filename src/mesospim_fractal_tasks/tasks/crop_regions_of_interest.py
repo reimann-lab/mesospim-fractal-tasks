@@ -2,11 +2,13 @@ import logging
 from pathlib import Path
 import zarr
 import dask.array as da
+import numpy as np
+import anndata as ad
 from typing import Dict, Any
 from pydantic import validate_call
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
-from fractal_tasks_core.roi import get_single_image_ROI
+from fractal_tasks_core.roi import get_single_image_ROI, prepare_FOV_ROI_table
 from fractal_tasks_core.tables import write_table
 from fractal_tasks_core.pyramids import build_pyramid
 
@@ -15,11 +17,53 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
 
 logger = logging.getLogger(__name__)
 
+def adapt_coordinates(start, end, dim, scale, table):
+    new_start_um = start * scale
+    new_end_um = end * scale
+    table[f"pixel_size_{dim}"] = scale
+    table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"] - new_start_um
+    table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"].clip(
+        lower=0, upper=new_end_um)
+    if dim != "z":
+        table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"] - new_start_um
+        table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"].clip(
+            lower=0, upper=new_end_um)
+    dim_max = table[f"{dim}_micrometer"].max()
+    if dim_max == new_end_um:
+        table.drop(table[table[f"{dim}_micrometer"] == dim_max].index, inplace=True)
+    
+    dim_micrometers = sorted(table[f"{dim}_micrometer"].unique())
+    dim_micrometers.append(new_end_um)
+    dim_micrometers = np.array(dim_micrometers)
+    for r, row in table.iterrows():
+        i = np.argwhere(dim_micrometers == row[f"{dim}_micrometer"])[0][0]
+        table.loc[r,f"len_{dim}_micrometer"] = dim_micrometers[i+1] - row[f"{dim}_micrometer"]
+        table.loc[r,f"{dim}_pixel"] = int(round(table.loc[r, f"len_{dim}_micrometer"] / scale))
+    
+def adapt_roi_table(zarr_path, roi_path, coords, scale):
+    logger.info(f"Adapting FOV ROI table to crop for {roi_path}")
+
+    # Load original table
+    source_table = ad.read_zarr(zarr_path/ "tables" / "FOV_ROI_table").to_df()
+
+    # Update z, y, x coordinates
+    x_start, x_end = coords["x_start"], coords["x_end"]
+    y_start, y_end = coords["y_start"], coords["y_end"]
+    z_start, z_end = coords["z_start"], coords["z_end"]
+    adapt_coordinates(x_start, x_end, "x", scale[2], source_table)
+    adapt_coordinates(y_start, y_end, "y", scale[1], source_table)
+    adapt_coordinates(z_start, z_end, "z", scale[0], source_table)
+
+    # Update index
+    source_table.index = [f"FOV_{i}" for i in range(len(source_table))]
+    print(source_table)
+    return source_table
+
 def check_binary_compatibility(
     slice_start: float, 
     slice_end: float,
     scale: float,
-    power: int = 4
+    power: int = 6
 ) -> tuple[int, int]:
     """
     Check if the crop slices can be divided by a power of 2.
@@ -28,7 +72,7 @@ def check_binary_compatibility(
         slice_start (float): Beginning of slice in microns.
         slice_end (float): End of slice in microns.
         scale (float): Scale of the image.
-        power (int): Power of 2 to check.
+        power (int): Power of 2 to check (should match pyramid resolution).
     
     Returns:
         tuple[int, int]: New slice start and end in pixels.
@@ -61,13 +105,13 @@ def crop_regions_of_interest(
         init_args: Intialization arguments provided by
             `init_crop_regions_of_interest`.
     """
-    
-    logger.info(f"Start task: {__name__} for {zarr_url}")
+    zarr_path = Path(zarr_url)
+    logger.info(f"Start task: {__name__} for {zarr_path.parent}/{zarr_path.name}")
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image.")
-    full_res_arr = da.from_zarr(f"{zarr_url}/0")
-    image_meta = load_NgffImageMeta(zarr_url)
+    full_res_arr = da.from_zarr(zarr_path/"0")
+    image_meta = load_NgffImageMeta(zarr_path)
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     if init_args["num_levels"] is None:
         init_args["num_levels"] = image_meta.num_levels
@@ -95,17 +139,16 @@ def crop_regions_of_interest(
                         z_start:z_end,
                         y_start:y_end,
                         x_start:x_end]
-    
-    
+        
     logger.info(f"Saving cropped region as {roi_id}.")
-    root_path = Path(zarr_url).parent
+    root_path = zarr_path.parent
     roi_path = Path(root_path, roi_id)
     roi_arr = zarr.create(
             shape=crop.shape,
             chunks=full_res_arr.chunksize,
             dtype=full_res_arr.dtype,
             store=zarr.storage.FSStore(f"{roi_path}/0"),
-            overwrite=False,
+            overwrite=True,
             dimension_separator="/"
     )
     z_chunk = full_res_arr.chunksize[1]
@@ -136,7 +179,7 @@ def crop_regions_of_interest(
             "x_start_um": coords['x_start_um'],
             "x_end_um": coords['x_end_um']
         },
-        "origin": f"{Path(zarr_url).name}"
+        "origin": f"{zarr_path.name}"
 
     }
     multiscales = roi_group.attrs["multiscales"]
@@ -146,21 +189,23 @@ def crop_regions_of_interest(
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
 
-    # Write pyramid of resolution
-    logger.info(f"Building pyramid of resolution for {roi_path}")
-    build_pyramid(
-        zarrurl=roi_path,
-        overwrite=True,
-        num_levels=init_args["num_levels"],
-        coarsening_xy=init_args["coarsening_xy"],
-        chunksize=roi_arr.chunks,
-    )
-
-    # Re-compute optimal contrast limits for ROI
-    contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"], 
-                                                  percentile=None)
-    
-    _update_omero_channels(roi_path, {"window": contrast_limits})
+    # Update FOV ROI table in case of crop
+    if init_args["crop_or_roi"] == "crop":
+        coords = dict(x_start=x_start, x_end=x_end, 
+                      y_start=y_start, y_end=y_end, 
+                      z_start=z_start, z_end=z_end)
+        fov_roi_table = adapt_roi_table(zarr_path, roi_path, coords, scale)
+        
+        # Write table
+        logger.info(f"Writing FOV ROI table for {roi_path}")
+        fov_roi_table = prepare_FOV_ROI_table(fov_roi_table)
+        write_table(
+            zarr.open(roi_path, mode="a"),
+            "FOV_ROI_table",
+            fov_roi_table,
+            overwrite=True,
+            table_attrs={"type": "roi_table"},
+        )
 
     # Write well ROI table
     logger.info(f"Writing well ROI table for {roi_path}")
@@ -173,6 +218,21 @@ def crop_regions_of_interest(
         overwrite=True,
         table_attrs={"type": "roi_table"},
     )
+
+    # Write pyramid of resolution
+    logger.info(f"Building pyramid of resolution for {roi_path}")
+    build_pyramid(
+        zarrurl=roi_path,
+        overwrite=True,
+        num_levels=init_args["num_levels"],
+        coarsening_xy=init_args["coarsening_xy"],
+        chunksize=roi_arr.chunks,
+    )
+
+    # Re-compute optimal contrast limits for ROI
+    contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"])
+    
+    _update_omero_channels(roi_path, {"window": contrast_limits})
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=roi_path, 

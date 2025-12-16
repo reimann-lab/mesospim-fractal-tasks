@@ -90,6 +90,7 @@ def init_crop_regions_of_interest(
                     roi_id=roi_id,
                     roi_coords=roi_row.to_dict(),
                     num_levels=num_levels,
+                    crop_or_roi=crop_or_roi,
                     coarsening_xy=coarsening_xy,
                 ),
             )

@@ -99,6 +99,7 @@ def check_binary_compatibility(
     slice_start: float, 
     slice_end: float,
     scale: float,
+    max_end: int,
     power: int = 6
 ) -> tuple[int, int]:
     """
@@ -108,22 +109,34 @@ def check_binary_compatibility(
         slice_start (float): Beginning of slice in microns.
         slice_end (float): End of slice in microns.
         scale (float): Scale of the image.
+        max_end (int): Maximum possible end of slice in px.
         power (int): Power of 2 to check (should match pyramid resolution).
     
     Returns:
         tuple[int, int]: New slice start and end in pixels.
     """
-
     modulo = abs(round(slice_end / scale) - round(slice_start / scale)) % 2**power
     if modulo > 0:
         add_start = (2**power - modulo) // 2
-        new_slice_start = round(slice_start / scale) - add_start
+        temp_start = round(slice_start / scale)
+        if add_start > temp_start:
+            add_start = temp_start
+        new_slice_start = temp_start - add_start
         new_slice_end = round(slice_end / scale) + (2**power - modulo - add_start)
     else:
         new_slice_start = round(slice_start / scale)
         new_slice_end = round(slice_end / scale)
-    
-    return new_slice_start, new_slice_end
+
+    if new_slice_end > max_end:
+        diff = new_slice_end - slice_end
+        new_slice_end = max_end
+        add_start = 2**power - (diff % 2**power)
+        new_slice_start = new_slice_start - add_start
+        if new_slice_start < 0:
+            new_slice_start = 0
+            logger.warning(f"Crop is outside of array boundary. Keeping original size.")
+        
+    return int(new_slice_start), int(new_slice_end)
 
 @validate_call
 def crop_regions_of_interest(
@@ -148,6 +161,7 @@ def crop_regions_of_interest(
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image.")
     full_res_arr = da.from_zarr(zarr_path/"0")
+    full_shape = full_res_arr.shape
     image_meta = load_NgffImageMeta(zarr_path)
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     if init_args["num_levels"] is None:
@@ -156,18 +170,21 @@ def crop_regions_of_interest(
     # Read ROI coordinates
     coords = init_args["roi_coords"]
     roi_id = init_args["roi_id"]
-    z_start, z_end = check_binary_compatibility(coords['z_start_um'], 
-                                                coords['z_end_um'], 
+    z_start, z_end = check_binary_compatibility(max(coords['z_start_um'], 0),
+                                                coords['z_end_um'],
+                                                full_shape[1],
                                                 scale[0], 
-                                                power = 0)
-    y_start, y_end = check_binary_compatibility(coords['y_start_um'], 
+                                                power=0)
+    y_start, y_end = check_binary_compatibility(max(coords['y_start_um'], 0),
                                                 coords['y_end_um'], 
+                                                full_shape[2],
                                                 scale[1],
-                                                power = init_args["num_levels"])
-    x_start, x_end = check_binary_compatibility(coords['x_start_um'], 
-                                                coords['x_end_um'], 
+                                                power=init_args["num_levels"])
+    x_start, x_end = check_binary_compatibility(max(coords['x_start_um'], 0),
+                                                coords['x_end_um'],
+                                                full_shape[3], 
                                                 scale[2],
-                                                power = init_args["num_levels"])
+                                                power=init_args["num_levels"])
 
     # Crop region
     logger.info(f"Cropping ROI region from full resolution image at "
@@ -270,10 +287,17 @@ def crop_regions_of_interest(
     contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"])
     
     _update_omero_channels(roi_path, {"window": contrast_limits})
-
+    
+    # Update image list
+    if init_args["crop_or_roi"] == "crop":
+        type = "is_crop"
+    else:
+        type = "is_roi"
     image_list_updates = dict(
-        image_list_updates=[dict(zarr_url=roi_path, 
-                                 attributes=dict(image=roi_id))]
+        image_list_updates=[dict(origin=str(zarr_path),
+                                 zarr_url=str(roi_path), 
+                                 attributes=dict(image=roi_id),
+                                 types={type: True})]
     )
     return image_list_updates
 

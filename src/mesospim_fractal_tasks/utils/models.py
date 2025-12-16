@@ -9,14 +9,20 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class FusionChunkSize(BaseModel):
+class DimTuple(BaseModel):
     """
-    Chunksize for the dimension (Z, Y, X) to use when performing 
-    the fusion in the stitching task.
+    Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.
     """
-    z: int
-    y: int
-    x: int
+    z: float = None
+    y: float = None
+    x: float = None
+
+    def get_dict(self):
+        d = dict()
+        for key, value in self.dict().items():
+            if value is not None:
+                d[key] = value
+        return d
 
 class IlluminationModel(BaseModel):
     """

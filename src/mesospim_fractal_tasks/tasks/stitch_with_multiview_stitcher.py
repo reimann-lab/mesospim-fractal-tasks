@@ -4,6 +4,7 @@ import logging
 import shutil
 from pathlib import Path
 from typing import Optional
+import os
 
 import anndata as ad
 import numpy as np
@@ -21,9 +22,9 @@ from mesospim_fractal_tasks.utils.stitching import (
     StitchingChannelInputModel,
     get_sim_from_multiscales,
     get_tiles_from_sim,
-    patched_get_sim_from_array
+    patched_get_sim_from_array,
 )
-from mesospim_fractal_tasks.utils.models import FusionChunkSize
+from mesospim_fractal_tasks.utils.models import DimTuple
 si_utils.get_sim_from_array = patched_get_sim_from_array
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -36,10 +37,12 @@ def stitch_with_multiview_stitcher(
     channel: StitchingChannelInputModel,
     registration_resolution_level: int = 0,
     registration_on_z_proj: bool = True,
+    registration_function: str = "phase_correlation",
+    overlap_tolerance: DimTuple = DimTuple(z=0, y=0, x=0),
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     n_batches: int = 1,
-    fusion_chunksize: Optional[FusionChunkSize] = None,
+    fusion_chunksize: Optional[DimTuple] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
 
@@ -54,7 +57,18 @@ def stitch_with_multiview_stitcher(
             both.
         registration_resolution_level: Resolution level to use for registration.
         registration_on_z_proj: Whether to perform registration on a maximum
-            projection along z in case of 3D data. Recommended for large z step.
+            projection along z in case of 3D data. Recommended for large z step or when
+            there are empty tiles.
+        registration_function: Type of transformation to use for registration.
+            Available functions:
+            - 'phase_correlation': (default).
+            - 'antspy': see ANTsPy documentation for more information.
+        overlap_tolerance: float or dict, optional
+            Extend overlap regions considered for pairwise registration.
+            - if 0, the overlap region is the intersection of the tiles.
+            - if > 0, the overlap region is the intersection of the tiles
+                extended by this value in the given spatial dimensions.
+            Default: 0 for all dimensions.
         transform_type: Type of transformation to use for registration. 
             Available types:
             - 'translation': translation (default)
@@ -85,9 +99,10 @@ def stitch_with_multiview_stitcher(
             registration_on_z_proj=True, chunksize for the Z dimension is set to the 
             number of z planes.
     """
-    # Use the first of input_paths
-    logger.info(f"Start task: {__name__} for {zarr_url}")
+
     zarr_path = Path(zarr_url)
+    logger.info(f"Start task: `Stitching with multiview stitcher` "
+                f"for {zarr_path.parent}/{zarr_path.name}")
 
     # Parse and log several NGFF-image metadata attributes
     ngff_image_meta = load_NgffImageMeta(zarr_path)
@@ -100,11 +115,11 @@ def stitch_with_multiview_stitcher(
     )
     original_chunksize = xim_well_reg.data.chunksize
 
-
     # Determine whether to perform registration on maximum projection in Z
     z_dim = xim_well_reg.shape[1]
     if registration_on_z_proj:
         xim_well_reg = xim_well_reg.max("z")
+        overlap_tolerance = DimTuple(y=0, x=0)
 
     # Define the registration grid
     msims_reg = get_tiles_from_sim(
@@ -128,27 +143,42 @@ def stitch_with_multiview_stitcher(
         )
         raise ValueError
     
-    if transform_type in ["translation", "rigid", "similarity", "affine"]:
-        fusion_transform_key = "translation_registered"
-        params = registration.register(
-            msims_reg,
-            transform_key=input_transform_key,
-            new_transform_key=fusion_transform_key,
-            reg_channel_index=reg_channel_index,
-            registration_binning={dim: 1 for dim in reg_spatial_dims},
-            groupwise_resolution_kwargs={"transform": transform_type},
-            n_parallel_pairwise_regs=2,
-            pre_registration_pruning_method=pre_registration_pruning_method
-        )
-    else:
+    if transform_type not in ["translation", "rigid", "similarity", "affine"]:
         raise ValueError(f"Error. Unknown transformation type: {transform_type}."
-                         " Available types are 'translation', 'rigid', 'similarity', "
-                         "'affine'.")
+                    " Available types are 'translation', 'rigid', 'similarity', "
+                    "'affine'.")
+
+    if registration_function not in ["phase_correlation", "antspy"]:
+        raise ValueError(f"Error. Unknown registration function: {registration_function}."
+                    " Available functions are 'phase_correlation', 'antspy'.")
+    elif registration_function == "antspy":
+        registration_function = registration.registration_ANTsPy
+    else:
+        registration_function = registration.phase_correlation_registration
+
+    fusion_transform_key = "translation_registered"
+    overlap_tolerance = overlap_tolerance.get_dict()
+    n_cpus = os.cpu_count()
+    if n_cpus == None:
+        n_cpus = 1
+    registration.register(
+        msims_reg,
+        transform_key=input_transform_key,
+        new_transform_key=fusion_transform_key,
+        reg_channel_index=reg_channel_index,
+        pairwise_reg_func=registration_function,
+        overlap_tolerance=overlap_tolerance,
+        registration_binning={dim: 1 for dim in reg_spatial_dims},
+        groupwise_resolution_kwargs={"transform": transform_type},
+        n_parallel_pairwise_regs=n_cpus,
+        pre_registration_pruning_method=pre_registration_pruning_method
+    )
+
     logger.info("Finished registration.")
 
     # Preparing for fusion
     output_zarr_path = Path(zarr_path.parent, zarr_path.name + "_fused")
-    logger.info(f"Saving fused image to {output_zarr_path}") 
+    logger.info(f"Saving fused image to {output_zarr_path.name}") 
     output_zarr_temp = Path(output_zarr_path, "temp")
     output_zarr_final = Path(output_zarr_path, "0")
 
@@ -214,7 +244,6 @@ def stitch_with_multiview_stitcher(
         output_chunksize=fusion_chunksize_dict,
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
         output_zarr_url=output_zarr_temp,
-        blending_widths={"z": 1, "y": 966, "x": 566},
         batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/", 
                                                       "compressor": None}, 
                        "n_batch": n_batches},
@@ -307,6 +336,6 @@ def stitch_with_multiview_stitcher(
     return image_list_updates
 
 if __name__ == "__main__":
-    from fractal_tasks_core.tasks._utils import run_fractal_task
+    from fractal_task_tools.task_wrapper import run_fractal_task
 
     run_fractal_task(task_function=stitch_with_multiview_stitcher)

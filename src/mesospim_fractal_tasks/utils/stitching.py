@@ -8,6 +8,7 @@ import dask.array as da
 import zarr
 import pandas as pd
 import xarray as xr
+import numpy as np
 from numpy._typing import ArrayLike
 from fractal_tasks_core.channels import (
     ChannelInputModel,
@@ -24,6 +25,7 @@ from spatial_image import to_spatial_image
 DEFAULT_TRANSFORM_KEY = "affine_metadata"
 
 logger = logging.getLogger(__name__)
+
 
 # --- Monkey-patch get_sim_from_array ---
 def patched_get_sim_from_array(

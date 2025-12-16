@@ -516,7 +516,7 @@ def correct_flatfield(
                         f" to {new_zarr_path.name}.")
             source_group = zarr.open_group(zarr_path, mode="r")
             source_attrs = source_group.attrs.asdict()
-            image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
+            image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
             source_attrs["multiscales"][0]["name"] = image_name
             fractal_tasks = source_attrs.get("fractal_tasks", {})
             task_dict = dict(

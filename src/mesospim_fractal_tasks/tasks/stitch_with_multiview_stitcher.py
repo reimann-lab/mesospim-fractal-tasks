@@ -328,7 +328,7 @@ def stitch_with_multiview_stitcher(
     # Prepare the image list update
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(output_zarr_path), 
-                                 origin=zarr_url,
+                                 origin=str(zarr_path),
                                  attributes=dict(image=output_zarr_path.name))
         ]
     )

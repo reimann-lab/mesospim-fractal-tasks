@@ -570,28 +570,23 @@
       },
       "args_schema_parallel": {
         "$defs": {
-          "FusionChunkSize": {
-            "description": "Chunksize for the dimension (Z, Y, X) to use when performing ",
+          "DimTuple": {
+            "description": "Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.",
             "properties": {
               "z": {
                 "title": "Z",
-                "type": "integer"
+                "type": "number"
               },
               "y": {
                 "title": "Y",
-                "type": "integer"
+                "type": "number"
               },
               "x": {
                 "title": "X",
-                "type": "integer"
+                "type": "number"
               }
             },
-            "required": [
-              "z",
-              "y",
-              "x"
-            ],
-            "title": "FusionChunkSize",
+            "title": "DimTuple",
             "type": "object"
           },
           "StitchingChannelInputModel": {
@@ -632,7 +627,27 @@
             "default": true,
             "title": "Registration On Z Proj",
             "type": "boolean",
-            "description": "Whether to perform registration on a maximum projection along z in case of 3D data. Recommended for large z step."
+            "description": "Whether to perform registration on a maximum projection along z in case of 3D data. Recommended for large z step or when there are empty tiles."
+          },
+          "registration_function": {
+            "default": "phase_correlation",
+            "title": "Registration Function",
+            "type": "string",
+            "description": "Type of transformation to use for registration. Available functions: - 'phase_correlation': (default). - 'antspy': see ANTsPy documentation for more information."
+          },
+          "overlap_tolerance": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/DimTuple"
+              }
+            ],
+            "default": {
+              "z": 0.0,
+              "y": 0.0,
+              "x": 0.0
+            },
+            "title": "Overlap Tolerance",
+            "description": "float or dict, optional Extend overlap regions considered for pairwise registration. - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
           },
           "transform_type": {
             "default": "translation",
@@ -655,7 +670,7 @@
           "fusion_chunksize": {
             "allOf": [
               {
-                "$ref": "#/$defs/FusionChunkSize"
+                "$ref": "#/$defs/DimTuple"
               }
             ],
             "title": "Fusion Chunksize",

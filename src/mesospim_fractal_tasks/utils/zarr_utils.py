@@ -5,9 +5,12 @@ from typing import Any, Union, Optional
 from skimage.measure import block_reduce
 import numpy as np
 from pathlib import Path
-from filelock import FileLock
-from fractal_tasks_core.ngff import load_NgffImageMeta
+#from filelock import FileLock
+from zarr.storage import DirectoryStore
+from zarr.sync import ProcessSynchronizer
 
+
+from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
@@ -17,7 +20,8 @@ def _determine_optimal_contrast(
     image_path: Path,
     num_levels: int,
     channel_index: Optional[int] = None,
-    segment_sample: bool = False
+    segment_sample: bool = False, 
+    synchronizer: zarr.sync.ProcessSynchronizer = None
 ) -> dict[str, dict[str, int]]:
     """
     Determine the optimal contrast limits for the image.
@@ -33,10 +37,14 @@ def _determine_optimal_contrast(
         contrast_limits (list[dict[str, int]]): Contrast limits for the image.
     """
 
-    logger.info(f"Determining optimal contrast limits for {image_path}")
+    logger.info(f"Determining optimal contrast limits for {image_path.name}")
 
     # Load the lowest resolution image
-    image_group = zarr.open_group(image_path, mode="r")
+    store = DirectoryStore(str(image_path))
+    if synchronizer is not None:
+        image_group = zarr.open_group(store=store, mode="r", synchronizer=synchronizer)
+    else:
+        image_group = zarr.open_group(store=store, mode="r")
     low_res_arr = image_group[str(num_levels-1)]
 
     # Determine the percentile for the contrast limits
@@ -57,14 +65,15 @@ def _determine_optimal_contrast(
     return contrast_limits
 
 def _update_omero_channels(
-        zarr_url: str,
+        zarr_path: Path,
         update_dict: dict[str, Any],
+        synchronizer: zarr.sync.ProcessSynchronizer = None,
     ) -> None:
     """
     Update the OMERO channels in the OME-ZARR metadata.
 
     Args:
-        zarr_url (str): Path to the OME-ZARR store.
+        zarr_path (Path): Path to the OME-ZARR store.
         update_dict (dict[str, Any]): Dictionary containing the updates to be applied to the OMERO channels.
 
     Returns:
@@ -72,29 +81,32 @@ def _update_omero_channels(
     """
 
     # Read the OME-ZARR metadata
-    zarr_group = zarr.open_group(zarr_url, mode="r+")
-    lock_path = Path(zarr_url, ".zattrs.lock")
 
-    with FileLock(lock_path):
-        channels_attrs = zarr_group.attrs["omero"]["channels"]
+    # Open store + group with synchronizer
+    store = DirectoryStore(str(zarr_path))
+    if synchronizer is not None:
+        zarr_group = zarr.open_group(store=store, mode="r+", synchronizer=synchronizer)
+    else:
+        zarr_group = zarr.open_group(store=store, mode="r+")
+    channels_attrs = zarr_group.attrs["omero"]["channels"]
 
-        for c in range(len(channels_attrs)):
-            for key, value in update_dict.items():
-                if key == "window":
-                    if str(c) in value.keys():
-                        logger.info("Updating window contrast limits for channel " + str(c))
-                        logger.info(f"Old window: {channels_attrs[c][key]}")
-                        logger.info(f"New window: {value[str(c)]}")
-                        channels_attrs[c][key]["start"] = value[str(c)]["start"]
-                        channels_attrs[c][key]["end"] = value[str(c)]["end"]
-                else:
-                    logger.info("Updating channel " + str(c) + " attribute " + key)
-                    logger.info(f"Old value: {channels_attrs[c][key]}")
-                    logger.info(f"New value: {value[c]}")
-                    channels_attrs[c][key] = value[c]
-        
-        # Write the updated OME-ZARR metadata
-        zarr_group.attrs["omero"]= {"channels": channels_attrs}
+    for c in range(len(channels_attrs)):
+        for key, value in update_dict.items():
+            if key == "window":
+                if str(c) in value.keys():
+                    logger.info("Updating window contrast limits for channel " + str(c))
+                    logger.info(f"Old window: {channels_attrs[c][key]}")
+                    logger.info(f"New window: {value[str(c)]}")
+                    channels_attrs[c][key]["start"] = value[str(c)]["start"]
+                    channels_attrs[c][key]["end"] = value[str(c)]["end"]
+            else:
+                logger.info("Updating channel " + str(c) + " attribute " + key)
+                logger.info(f"Old value: {channels_attrs[c][key]}")
+                logger.info(f"New value: {value[c]}")
+                channels_attrs[c][key] = value[c]
+    
+    # Write the updated OME-ZARR metadata
+    zarr_group.attrs["omero"]= {"channels": channels_attrs}
 
 def _write_label_metadata(
     image_group: zarr.Group,

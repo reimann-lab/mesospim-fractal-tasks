@@ -200,12 +200,12 @@ def correct_illumination(
     
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Illumination Correction` "
-                f"for {zarr_path.parent}/{zarr_path.name}")
+                f"for {zarr_path.parent.name}/{zarr_path.name}")
     
     # Define new zarr path
-    new_zarr_path = Path(zarr_path.parent, zarr_path.name+"_illum_corr")
+    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
     if not new_zarr_path.exists():
-        logger.error(f"Error! {new_zarr_path} does not exist.")
+        logger.error(f"Error! {new_zarr_path.name} does not exist.")
         raise FileNotFoundError
     image_array = da.from_zarr(Path(zarr_url, "0"))
     
@@ -260,7 +260,7 @@ def correct_illumination(
                                           0, 65535).astype(np.uint16)
         
         # Write to disk
-        logger.info(f"Saving corrected FOV to {new_zarr_path}.")
+        logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
         corrected_FOV.to_zarr(
             url=zarr.open(Path(new_zarr_path, "0")),
             region=region,
@@ -284,38 +284,50 @@ def correct_illumination(
             url=zarr.open(new_zarr_path / str(level+1)), 
             region=region, 
             overwrite=True)
+
+    sync_path = new_zarr_path / ".zarr_process.lock"
+    synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path))
+    store = zarr.storage.DirectoryStore(str(new_zarr_path))
         
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:
 
-        with FileLock(Path(new_zarr_path, ".zattrs.lock")):
-            # Copy NGFF metadata from the old zarr_url to the new zarr
-            logger.info(f"Copying NGFF metadata from {zarr_url}"
-                        f" to {new_zarr_path.name}.")
-            source_group = zarr.open_group(zarr_url, mode="r")
-            source_attrs = source_group.attrs.asdict()
-            image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
-            source_attrs["multiscales"][0]["name"] = image_name
-            fractal_tasks = source_attrs.get("fractal_tasks", {})
-            task_dict = dict(
-                version=__version__.split("dev")[0][:-1],
-                commit=__commit__,
-                input_parameters=dict(
-                    z_correction=z_correction,
-                )
-            )
-            fractal_tasks["correct_illumination"] = task_dict
-            source_attrs["fractal_tasks"] = fractal_tasks
-            new_group = zarr.open(new_zarr_path, mode="a")
-            new_group.attrs.put(source_attrs)
-    
         # Copy ROI tables from the old zarr_url
-        _copy_tables_from_zarr_url(str(zarr_url), str(new_zarr_path))
+        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
+
+        # Copy NGFF metadata from the old zarr_url to the new zarr
+        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
+                    f" to {new_zarr_path.name}.")
+        source_group = zarr.open_group(zarr_path, mode="r")
+        source_attrs = source_group.attrs.asdict()
+        image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
+        source_attrs["multiscales"][0]["name"] = image_name
+        fractal_tasks = source_attrs.get("fractal_tasks", {})
+        task_dict = dict(
+            version=__version__.split("dev")[0][:-1],
+            commit=__commit__,
+            input_parameters=dict(
+                z_correction=z_correction,
+            )
+        )
+        fractal_tasks["correct_illumination"] = task_dict
+        source_attrs["fractal_tasks"] = fractal_tasks
+        new_group = zarr.open_group(store=store, synchronizer=synchronizer, mode="a")
+        new_group.attrs.put(source_attrs)
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(
-        new_zarr_path, num_levels, channel_index=channel_index, segment_sample=True)
-    _update_omero_channels(new_zarr_path, {"window": contrast_limits})
+        new_zarr_path, 
+        num_levels, 
+        channel_index=channel_index, 
+        segment_sample=True, 
+        synchronizer=synchronizer
+    )
+    _update_omero_channels(
+        new_zarr_path, 
+        {"window": contrast_limits}, 
+        synchronizer=synchronizer
+    )
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

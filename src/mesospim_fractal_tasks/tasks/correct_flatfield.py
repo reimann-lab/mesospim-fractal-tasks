@@ -13,7 +13,6 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic import Field, validate_call
-from filelock import FileLock
 import anndata as ad
 import dask.array as da
 import numpy as np
@@ -422,7 +421,7 @@ def correct_flatfield(
     """
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Flatfield Correction` "
-                f"for {zarr_path.parent}/{zarr_path.name}")
+                f"for {zarr_path.parent.name}/{zarr_path.name}")
     
     new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     if not new_zarr_path.exists():
@@ -506,41 +505,6 @@ def correct_flatfield(
 
     # Lazily load highest-res level from original zarr array
     image_arr = da.from_zarr(Path(zarr_path, "0"))
-    
-    # Copy NGFF metadata from the old zarr_url to the new zarr if needed
-    if channel_index == 0:
-
-        with FileLock(Path(new_zarr_path, ".zattrs.lock")):
-            # Copy NGFF metadata from the old zarr_url to the new zarr
-            logger.info(f"Copying NGFF metadata from {zarr_path}"
-                        f" to {new_zarr_path.name}.")
-            source_group = zarr.open_group(zarr_path, mode="r")
-            source_attrs = source_group.attrs.asdict()
-            image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
-            source_attrs["multiscales"][0]["name"] = image_name
-            fractal_tasks = source_attrs.get("fractal_tasks", {})
-            task_dict = dict(
-                version=__version__.split("dev")[0][:-1],
-                commit=__commit__,
-                input_parameters=dict(
-                    models_folder=models_folder,
-                    resolution_level=resolution_level,
-                    n_zplanes=n_zplanes,
-                    advanced_basicpy_model_params=get_non_default_params(
-                        advanced_basicpy_model_params),
-                    input_ROI_table=input_ROI_table,
-                    FOV_list=init_args["FOV_list"],
-                    z_levels=init_args["z_levels"],
-                    saving_path=init_args["saving_path"]
-                )
-            )
-            fractal_tasks["correct_flatfield"] = task_dict
-            source_attrs["fractal_tasks"] = fractal_tasks
-            new_group = zarr.open(new_zarr_path, mode="a")
-            new_group.attrs.put(source_attrs)
-    
-        # Copy ROI tables from the old zarr_url
-        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
 
     # Iterate over FOV ROIs
     num_ROIs = len(list_indices)
@@ -587,11 +551,59 @@ def correct_flatfield(
             url=zarr.open(new_zarr_path / str(level+1)), 
             region=region, 
             overwrite=True)
+        
+    sync_path = new_zarr_path / ".zarr_process.lock"
+    synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path))
+    store = zarr.storage.DirectoryStore(str(new_zarr_path))
+    
+    # Copy NGFF metadata from the old zarr_url to the new zarr if needed
+    if channel_index == 0:
+
+        # Copy ROI tables from the old zarr_url
+        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
+
+        #with FileLock(Path(new_zarr_path, ".zattrs.lock")):
+        # Copy NGFF metadata from the old zarr_url to the new zarr
+        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
+                    f" to {new_zarr_path.name}.")
+        source_group = zarr.open_group(zarr_path, mode="r")
+        source_attrs = source_group.attrs.asdict()
+        image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
+        source_attrs["multiscales"][0]["name"] = image_name
+        fractal_tasks = source_attrs.get("fractal_tasks", {})
+        task_dict = dict(
+            version=__version__.split("dev")[0][:-1],
+            commit=__commit__,
+            input_parameters=dict(
+                models_folder=models_folder,
+                resolution_level=resolution_level,
+                n_zplanes=n_zplanes,
+                advanced_basicpy_model_params=get_non_default_params(
+                    advanced_basicpy_model_params),
+                input_ROI_table=input_ROI_table,
+                FOV_list=init_args["FOV_list"],
+                z_levels=init_args["z_levels"],
+                saving_path=init_args["saving_path"]
+            )
+        )
+        fractal_tasks["correct_flatfield"] = task_dict
+        source_attrs["fractal_tasks"] = fractal_tasks
+        new_group = zarr.open_group(store=store, synchronizer=synchronizer, mode="a")
+        new_group.attrs.put(source_attrs)
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(
-        new_zarr_path, num_levels, channel_index=channel_index, segment_sample=True)
-    _update_omero_channels(new_zarr_path, {"window": contrast_limits})
+        new_zarr_path, 
+        num_levels, 
+        channel_index=channel_index, 
+        segment_sample=True, 
+        synchronizer=synchronizer
+    )
+    _update_omero_channels(
+        new_zarr_path, 
+        {"window": contrast_limits}, 
+        synchronizer=synchronizer
+    )
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

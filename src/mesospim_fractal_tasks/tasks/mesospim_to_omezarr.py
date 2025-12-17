@@ -383,7 +383,7 @@ def convert_raw(
     """
 
     path = Path(file_dir)
-    files = [file for file in path.rglob("*")
+    files = [file for file in path.glob("*")
              if file.is_file() and basename in str(file)
              and (file.suffix == (".raw"))
              ]
@@ -489,7 +489,7 @@ def convert_tiff(
     """
 
     path = Path(file_dir)
-    files = [file for file in path.rglob("*")
+    files = [file for file in path.glob("*")
              if file.is_file() and basename in str(file)
              and (file.suffix == (".tif") or file.suffix == (".tiff"))
              ]
@@ -595,7 +595,7 @@ def convert_h5_multitile(
     """
     
     path = Path(file_dir)
-    files = [file for file in path.rglob((f"*{pattern}*.h5").replace("**", "*")) \
+    files = [file for file in path.glob((f"*{pattern}*.h5").replace("**", "*")) \
              if file.is_file()]
     if len(files) == 0:
         logger.error(f"No h5 file matches pattern:\"{pattern}\" in {file_dir}.")
@@ -830,7 +830,7 @@ def mesospim_to_omezarr(
             extensions = (extension,)
         for ext in extensions:
             meta_pattern = f"*{pattern}*.{ext}_meta.txt".replace("**", "*")
-            for path in Path(zarr_dir).rglob(meta_pattern):
+            for path in Path(zarr_dir).glob(meta_pattern):
                 metadata_path.append(path)
         if len(metadata_path) != 1:
             logger.error(f"Unique metadata file for pattern="

@@ -64,7 +64,7 @@ def init_crop_regions_of_interest(
     if roi_table_name is None:
         roi_table_name = "roi_coords"
     tables = []
-    for path in Path(zarr_path.parent).rglob(f"*{roi_table_name}*.csv"):
+    for path in Path(zarr_path.parent).glob(f"*{roi_table_name}*.csv"):
         tables.append(path)
     if len(tables) != 1:
         logger.error(f"Unique ROI coordinates table not found in {zarr_path.parent}.")

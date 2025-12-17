@@ -96,7 +96,7 @@ def init_correct_flatfield(
         )
     zarr_path = Path(zarr_urls[0])
     logger.info(f"Start task: `Flatfield Correction (Initialisation)` "
-                f"for {zarr_path.parent}/{zarr_path.name}")
+                f"for {zarr_path.parent.name}/{zarr_path.name}")
 
     logger.info(
         f"Calculating illumination profiles (flatfield/darkfield) based on "

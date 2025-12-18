@@ -146,11 +146,11 @@ def init_correct_flatfield(
 
     if save_models:
         if FOV_list is not None or z_levels is not None:
-            folder_path = zarr_path.parents[1] / "IllumModels"
+            folder_path = Path(zarr_path.parent, "IllumModels")
         else:
-            folder_path = zarr_path.parents[1] / "BaSiCPyModels"
+            folder_path = Path(zarr_path.parent, "BaSiCPyModels")
         for channel in channels_dict.keys():
-            channel_model_folder =  folder_path / channel
+            channel_model_folder = Path(folder_path, channel)
             if not channel_model_folder.exists():
                 channel_model_folder.mkdir(parents=True, exist_ok=True)
     else:
@@ -164,7 +164,7 @@ def init_correct_flatfield(
                 init_args=dict(
                     channel_name=channel,
                     channel_index=channel_dict["index"],
-                    saving_path = folder_path,
+                    saving_path=str(channel_model_folder),
                     FOV_list=FOV_list,
                     z_levels=z_levels
                 ),

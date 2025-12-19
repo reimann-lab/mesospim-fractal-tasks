@@ -14,7 +14,7 @@ def test_valid_manifest(tmp_path):
     # Download JSON Schema for ManifestV2
     url = (
         "https://raw.githubusercontent.com/fractal-analytics-platform/"
-        "fractal-server/refs/heads/main/src/"
+        "fractal-server/refs/heads/main/"
         "fractal_server/json_schemas/manifest_v2.json"
     )
     r = requests.get(url)

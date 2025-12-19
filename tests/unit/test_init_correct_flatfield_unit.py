@@ -76,10 +76,10 @@ def test_save_models_creates_correct_folder_name(
         FOV_list=[0,1,2,3]
     )
 
-    model_path = tmp_dataset / "IllumModels" / "Ch0"
+    model_path = tmp_dataset / "fake.zarr" / "IllumModels" / "Ch0"
     assert model_path.exists()
 
-    shutil.rmtree(tmp_dataset / "IllumModels")
+    shutil.rmtree(tmp_dataset / "fake.zarr" / "IllumModels")
     init_correct_flatfield(
         zarr_urls=[str(fake_zarr)],
         zarr_dir=str(tmp_dataset),
@@ -87,7 +87,7 @@ def test_save_models_creates_correct_folder_name(
         z_levels=[5, 10]
     )
 
-    model_path = tmp_dataset / "IllumModels" / "Ch0"
+    model_path = tmp_dataset / "fake.zarr" / "IllumModels" / "Ch0"
     assert model_path.exists()
 
     init_correct_flatfield(
@@ -96,5 +96,5 @@ def test_save_models_creates_correct_folder_name(
         save_models=True
     )
 
-    model_path = tmp_dataset / "BaSiCPyModels" / "Ch0"
+    model_path = tmp_dataset / "fake.zarr" / "BaSiCPyModels" / "Ch0"
     assert model_path.exists()

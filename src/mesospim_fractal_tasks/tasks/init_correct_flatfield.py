@@ -154,7 +154,7 @@ def init_correct_flatfield(
             if not channel_model_folder.exists():
                 channel_model_folder.mkdir(parents=True, exist_ok=True)
     else:
-        folder_path = None
+        channel_model_folder = None
     
     parallelization_list = []
     for channel, channel_dict in channels_dict.items():

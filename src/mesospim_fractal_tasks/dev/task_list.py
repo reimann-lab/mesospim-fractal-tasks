@@ -56,7 +56,7 @@ TASK_LIST = [
         input_types=dict(stitched=False),
         executable="tasks/stitch_with_multiview_stitcher.py",
         output_types=dict(stitched=True),
-        meta={"cpus_per_task": 4, "mem": 10000, "time": "3-00:00:00"},
+        meta={"cpus_per_task": 4, "mem": 32000, "time": "3-00:00:00"},
         tags=["Stitching", "Multitile", "Multiview Stitcher"],
         category="Image Processing",
         modality="lightsheet"

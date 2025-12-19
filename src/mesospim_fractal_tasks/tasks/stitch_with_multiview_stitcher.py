@@ -288,8 +288,19 @@ def stitch_with_multiview_stitcher(
     task_dict = dict(
         version=__version__.split("dev")[0][:-1],
         commit=__commit__,
-        input_parameters=dict()
+        input_parameters=dict(
+            channel=channel,
+            registration_resolution_level=registration_resolution_level,
+            registration_on_z_proj=registration_on_z_proj,
+            registration_function=registration_function,
+            overlap_tolerance=overlap_tolerance,
+            transform_type=transform_type,
+            pre_registration_pruning_method=pre_registration_pruning_method,
+            max_workers=max_workers,
+            fusion_chunksize=fusion_chunksize.get_dict(),
+        )
     )
+
     fractal_tasks["stitching_with_multiview_stitcher"] = task_dict
     source_attrs["fractal_tasks"] = fractal_tasks
     new_group = zarr.open(output_zarr_path, mode="a")

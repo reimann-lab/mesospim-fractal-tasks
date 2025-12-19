@@ -559,7 +559,7 @@
       "executable_parallel": "tasks/stitch_with_multiview_stitcher.py",
       "meta_parallel": {
         "cpus_per_task": 4,
-        "mem": 10000,
+        "mem": 32000,
         "time": "3-00:00:00"
       },
       "args_schema_parallel": {
@@ -655,11 +655,11 @@
             "type": "string",
             "description": "Method to use for selecting a subset of all overlapping tiles for pairwise registration. By default, only lower, upper, right and left neighbors are considered. Set this parameter to no_pruning if pairs of tiles which deviate from this pattern need to be registered. Available methods: - None: No pruning, useful when no regular arrangement is present. - 'alternating_pattern': Prune to edges between squares of differering colors in checkerboard pattern. Useful for regular 2D tile arrangements (of both 2D or 3D data). - 'shortest_paths_overlap_weighted': Prune to shortest paths in overlap graph (weighted by overlap). Useful to minimize the number of pairwise registrations. - 'otsu_threshold_on_overlap': Prune to edges with overlap above Otsu threshold. This is useful for regular 2D or 3D grid arrangements, as diagonal edges will be pruned. - 'keep_axis_aligned': Keep only edges that align with tile axes. This is useful for regular grid arrangements and to explicitely prune diagonals, e.g. when other methods fail."
           },
-          "n_batches": {
+          "max_workers": {
             "default": 1,
-            "title": "N Batches",
+            "title": "Max Workers",
             "type": "integer",
-            "description": "Missing description"
+            "description": "Maximum number of workers to process blocks in parallel. Should not be more than number of available workers. Default: 1."
           },
           "fusion_chunksize": {
             "allOf": [

@@ -1,15 +1,12 @@
 """This is the Python module for sitching FOVs from an OME-Zarr image."""
 
 import logging
-import shutil
 from pathlib import Path
 from typing import Optional
 import os
 
 import anndata as ad
-import numpy as np
 import zarr
-import dask.array as da
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.pyramids import build_pyramid
 from fractal_tasks_core.roi import get_single_image_ROI
@@ -23,9 +20,16 @@ from mesospim_fractal_tasks.utils.stitching import (
     get_sim_from_multiscales,
     get_tiles_from_sim,
     patched_get_sim_from_array,
+    parallel_block_processing,
+    fuse,
+    phase_correlation_registration
 )
-from mesospim_fractal_tasks.utils.models import DimTuple
+
 si_utils.get_sim_from_array = patched_get_sim_from_array
+fusion.fuse = fuse
+registration.phase_correlation_registration = phase_correlation_registration
+
+from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks import __version__, __commit__
 
 logger = logging.getLogger(__name__)
@@ -41,7 +45,7 @@ def stitch_with_multiview_stitcher(
     overlap_tolerance: DimTuple = DimTuple(z=0, y=0, x=0),
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
-    n_batches: int = 1,
+    max_workers: int = 1,
     fusion_chunksize: Optional[DimTuple] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
@@ -93,6 +97,8 @@ def stitch_with_multiview_stitcher(
             - 'keep_axis_aligned': Keep only edges that align with tile axes. This is 
                 useful for regular grid arrangements and to explicitely prune diagonals, 
                 e.g. when other methods fail.
+        max_workers: Maximum number of workers to process blocks in parallel. Should not 
+            be more than number of available workers. Default: 1.
         fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing 
             the fusion. It impacts the memory usage and the time to fuse the tiles. 
             If None, the chunksize of the raw image is used. In case of 
@@ -158,7 +164,7 @@ def stitch_with_multiview_stitcher(
 
     fusion_transform_key = "translation_registered"
     overlap_tolerance = overlap_tolerance.get_dict()
-    n_cpus = os.cpu_count()
+    n_cpus = os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count())
     if n_cpus == None:
         n_cpus = 1
     registration.register(
@@ -179,14 +185,13 @@ def stitch_with_multiview_stitcher(
     # Preparing for fusion
     output_zarr_path = Path(zarr_path.parent, zarr_path.name + "_fused")
     logger.info(f"Saving fused image to {output_zarr_path.name}") 
-    output_zarr_temp = Path(output_zarr_path, "temp")
     output_zarr_final = Path(output_zarr_path, "0")
 
     if fusion_chunksize is None:
         fusion_chunksize = original_chunksize[-3:]
     else:
         fusion_chunksize = (fusion_chunksize.z, fusion_chunksize.y, fusion_chunksize.x)
-    logger.info(f"Fusion Chunk size set to: {fusion_chunksize}.")
+    logger.info(f"Fusion chunk size set to: {fusion_chunksize}.")
     
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
@@ -236,43 +241,29 @@ def stitch_with_multiview_stitcher(
         fusion_chunksize_dict = {
             dim: cs for dim, cs in zip(sdims, fusion_chunksize)
         }
+
+    if max_workers > n_cpus:
+        max_workers = n_cpus
+        logger.warning("Number of processes is greater than available number of workers"
+                       "... Setting to the number of available CPUs. ")
     
-    logger.info(f"Starting fusing tiles with chunksize {fusion_chunksize_dict}...")
+    logger.info(f"Starting fusing tiles...")
     fused = fusion.fuse(
         sims,
         transform_key=fusion_transform_key,
+        drop_t=True,
         output_chunksize=fusion_chunksize_dict,
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
-        output_zarr_url=output_zarr_temp,
-        batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/", 
-                                                      "compressor": None}, 
-                       "n_batch": n_batches},
+        output_zarr_url=output_zarr_final,
+        batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/"},
+                       "n_batch": max_workers,
+                       "batch_func": parallel_block_processing,
+                    },
     )
 
-    logger.info("Resizing (dropping t dimension) and rechunking to"
-                f" {original_chunksize}...")
-    
     # Open the zarr group (read/write)
-    temp_array = da.from_zarr(output_zarr_temp)[0]
-    new_shape = temp_array.shape
+    new_shape = zarr.open(output_zarr_final).shape
     
-    # Refactor the tmep output zarr array (drop t and rechunk)
-    final_fused_arr = zarr.create(
-        shape=new_shape,
-        chunks=original_chunksize,
-        dtype=np.uint16,
-        store=zarr.storage.FSStore(output_zarr_final),
-        overwrite=True,
-        dimension_separator="/",
-    )
-    for i in range(0, new_shape[-2], original_chunksize[-2] * n_batches):
-        for j in range(0, new_shape[-1], original_chunksize[-1] * n_batches):
-            region = (slice(None), 
-                      slice(None), 
-                      slice(i, i+original_chunksize[-2] * n_batches), 
-                      slice(j, j+original_chunksize[-1] * n_batches))
-            rechunked_array = temp_array[region].rechunk(original_chunksize)
-            da.to_zarr(rechunked_array, final_fused_arr, region=region)
     logger.info("Finished fusing tiles.")
 
     logger.info("Started building resolution pyramid")
@@ -321,9 +312,6 @@ def stitch_with_multiview_stitcher(
         overwrite=True,
         table_attrs={"type": "roi_table"},
     )
-
-    # Clean up temporary Zarr file
-    shutil.rmtree(output_zarr_temp)
 
     # Prepare the image list update
     image_list_updates = dict(

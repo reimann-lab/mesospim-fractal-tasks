@@ -164,7 +164,7 @@ def stitch_with_multiview_stitcher(
 
     fusion_transform_key = "translation_registered"
     overlap_tolerance = overlap_tolerance.get_dict()
-    n_cpus = os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count())
+    n_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count()))
     if n_cpus == None:
         n_cpus = 1
     registration.register(

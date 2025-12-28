@@ -297,7 +297,7 @@ def stitch_with_multiview_stitcher(
             transform_type=transform_type,
             pre_registration_pruning_method=pre_registration_pruning_method,
             max_workers=max_workers,
-            fusion_chunksize=fusion_chunksize.get_dict(),
+            fusion_chunksize=fusion_chunksize_dict,
         )
     )
 

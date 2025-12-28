@@ -8,7 +8,7 @@ from tqdm import tqdm
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Union
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, FIRST_COMPLETED, wait
 import os
 import dask.array as da
 import spatial_image as si
@@ -261,7 +261,23 @@ def phase_correlation_registration(
 
     return reg_result
 
-def parallel_block_processing(max_workers, nblocks, fuse_func, meta, fuse_kwargs):
+# --- worker globals (one copy per process) ---
+_G = {}
+
+def _init_worker(meta: dict, fuse_kwargs: dict):
+    """
+    Runs once per worker process.
+    Stores heavy, read-only objects (incl. sims) in process-global memory
+    so they are not pickled/sent for every block.
+    """
+    _G["meta"] = meta
+    _G["fuse_kwargs"] = fuse_kwargs
+
+def _worker(block_id):
+    """Thin wrapper: only block_id is sent per task."""
+    return fuse_one_block_worker(block_id, meta=_G["meta"], fuse_kwargs=_G["fuse_kwargs"])
+
+def parallel_block_processing2(max_workers, nblocks, fuse_func, meta, fuse_kwargs):
     """
     Fuse a single block and write it to the existing Zarr array.
     """
@@ -283,6 +299,60 @@ def parallel_block_processing(max_workers, nblocks, fuse_func, meta, fuse_kwargs
 
         for _ in tqdm(as_completed(futures), total=total, desc="Fusing blocks"):
             pass
+
+def parallel_block_processing(
+    *,
+    max_workers: int,
+    nblocks,
+    meta: dict,
+    fuse_kwargs: dict,
+    max_in_flight: int | None = None,
+):
+    """
+    Parallel chunk processing with backpressure.
+
+    - max_workers controls compute/write concurrency
+    - max_in_flight controls how many tasks are submitted/queued at once
+      (prevents OOM from submitting all tasks up-front)
+    """
+    all_block_ids = list(np.ndindex(*nblocks))
+    total = len(all_block_ids)
+
+    if max_in_flight is None:
+        max_in_flight = 2 * max_workers  # good default backpressure
+
+    it = iter(all_block_ids)
+    in_flight = set()
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=_init_worker,
+        initargs=(meta, fuse_kwargs),
+    ) as ex:
+        # prime the pipeline
+        for _ in range(min(max_in_flight, total)):
+            bid = next(it, None)
+            if bid is None:
+                break
+            in_flight.add(ex.submit(_worker, bid))
+
+        pbar = tqdm(total=total, desc="Fusing blocks")
+        while in_flight:
+            done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+
+            # collect results + surface exceptions
+            for fut in done:
+                _ = fut.result()
+                pbar.update(1)
+
+            # submit new tasks to keep the pipeline full (bounded)
+            for _ in range(len(done)):
+                bid = next(it, None)
+                if bid is None:
+                    break
+                in_flight.add(ex.submit(_worker, bid))
+
+        pbar.close()
 
 def fuse_one_block_worker(block_id, *, meta: dict, fuse_kwargs: dict):
     """
@@ -345,7 +415,9 @@ def fuse_one_block_worker(block_id, *, meta: dict, fuse_kwargs: dict):
 
     # Ensure a local scheduler inside the worker
     with dask_config.set(scheduler="single-threaded"):
-        da.to_zarr(fused, output_zarr_array, region=region)
+        #da.to_zarr(fused, output_zarr_array, region=region)
+        fused_block = fused.compute()
+    output_zarr_array[region] = fused_block
 
     return block_id
 
@@ -612,12 +684,12 @@ def fuse(
                     
                 # Sequential fallback
                 all_block_ids = list(np.ndindex(*nblocks))
-                for block_id in tqdm(all_block_ids):
+                for block_id in batch:
                     fuse_one_block_worker(block_id, meta=meta, 
                                         fuse_kwargs=worker_fuse_kwargs)
 
         else:
-            batch_func(nblocks=nblocks, fuse_func=fuse_one_block_worker,
+            batch_func(nblocks=nblocks, #fuse_func=fuse_one_block_worker,
                         **batch_func_kwargs)
 
 

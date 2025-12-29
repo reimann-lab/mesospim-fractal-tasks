@@ -48,6 +48,76 @@ logger = logging.getLogger(__name__)
 BoundingBox = dict[str, dict[str, Union[float, int]]]
 
 
+# --- worker globals (one copy per process) ---
+_G = {}
+
+def _init_worker(meta: dict, fuse_kwargs: dict):
+    """
+    Runs once per worker process.
+    Stores heavy, read-only objects in process-global memory
+    so they are not pickled/sent for every block.
+    """
+    _G["meta"] = meta
+    _G["fuse_kwargs"] = fuse_kwargs
+
+def _worker(block_id):
+    """Thin wrapper: only block_id is sent per task."""
+    return fuse_one_block_worker(block_id, meta=_G["meta"], fuse_kwargs=_G["fuse_kwargs"])
+
+def parallel_block_processing(
+    *,
+    max_workers: int,
+    nblocks,
+    meta: dict,
+    fuse_kwargs: dict,
+    max_in_flight: int | None = None,
+):
+    """
+    Parallel chunk processing with backpressure.
+
+    - max_workers controls compute/write concurrency
+    - max_in_flight controls how many tasks are submitted/queued at once
+      (prevents OOM from submitting all tasks up-front)
+    """
+    all_block_ids = list(np.ndindex(*nblocks))
+    total = len(all_block_ids)
+
+    if max_in_flight is None:
+        max_in_flight = 2 * max_workers  # good default backpressure
+
+    it = iter(all_block_ids)
+    in_flight = set()
+
+    with ProcessPoolExecutor(
+        max_workers=max_workers,
+        initializer=_init_worker,
+        initargs=(meta, fuse_kwargs),
+    ) as ex:
+        # prime the pipeline
+        for _ in range(min(max_in_flight, total)):
+            bid = next(it, None)
+            if bid is None:
+                break
+            in_flight.add(ex.submit(_worker, bid))
+
+        pbar = tqdm(total=total, desc="Fusing blocks")
+        while in_flight:
+            done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
+
+            # collect results + surface exceptions
+            for fut in done:
+                _ = fut.result()
+                pbar.update(1)
+
+            # submit new tasks to keep the pipeline full (bounded)
+            for _ in range(len(done)):
+                bid = next(it, None)
+                if bid is None:
+                    break
+                in_flight.add(ex.submit(_worker, bid))
+
+        pbar.close()
+
 def phase_correlation_registration(
     fixed_data,
     moving_data,
@@ -260,99 +330,6 @@ def phase_correlation_registration(
     reg_result["quality"] = quality_metric_vals[argmax_index]
 
     return reg_result
-
-# --- worker globals (one copy per process) ---
-_G = {}
-
-def _init_worker(meta: dict, fuse_kwargs: dict):
-    """
-    Runs once per worker process.
-    Stores heavy, read-only objects (incl. sims) in process-global memory
-    so they are not pickled/sent for every block.
-    """
-    _G["meta"] = meta
-    _G["fuse_kwargs"] = fuse_kwargs
-
-def _worker(block_id):
-    """Thin wrapper: only block_id is sent per task."""
-    return fuse_one_block_worker(block_id, meta=_G["meta"], fuse_kwargs=_G["fuse_kwargs"])
-
-def parallel_block_processing2(max_workers, nblocks, fuse_func, meta, fuse_kwargs):
-    """
-    Fuse a single block and write it to the existing Zarr array.
-    """
-    
-    futures = []
-    all_block_ids = list(np.ndindex(*nblocks))
-    total = len(all_block_ids)
-
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
-            executor.submit(
-                fuse_func,
-                block_id,
-                meta=meta,
-                fuse_kwargs=fuse_kwargs,
-            )
-            for block_id in all_block_ids
-        ]
-
-        for _ in tqdm(as_completed(futures), total=total, desc="Fusing blocks"):
-            pass
-
-def parallel_block_processing(
-    *,
-    max_workers: int,
-    nblocks,
-    meta: dict,
-    fuse_kwargs: dict,
-    max_in_flight: int | None = None,
-):
-    """
-    Parallel chunk processing with backpressure.
-
-    - max_workers controls compute/write concurrency
-    - max_in_flight controls how many tasks are submitted/queued at once
-      (prevents OOM from submitting all tasks up-front)
-    """
-    all_block_ids = list(np.ndindex(*nblocks))
-    total = len(all_block_ids)
-
-    if max_in_flight is None:
-        max_in_flight = 2 * max_workers  # good default backpressure
-
-    it = iter(all_block_ids)
-    in_flight = set()
-
-    with ProcessPoolExecutor(
-        max_workers=max_workers,
-        initializer=_init_worker,
-        initargs=(meta, fuse_kwargs),
-    ) as ex:
-        # prime the pipeline
-        for _ in range(min(max_in_flight, total)):
-            bid = next(it, None)
-            if bid is None:
-                break
-            in_flight.add(ex.submit(_worker, bid))
-
-        pbar = tqdm(total=total, desc="Fusing blocks")
-        while in_flight:
-            done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
-
-            # collect results + surface exceptions
-            for fut in done:
-                _ = fut.result()
-                pbar.update(1)
-
-            # submit new tasks to keep the pipeline full (bounded)
-            for _ in range(len(done)):
-                bid = next(it, None)
-                if bid is None:
-                    break
-                in_flight.add(ex.submit(_worker, bid))
-
-        pbar.close()
 
 def fuse_one_block_worker(block_id, *, meta: dict, fuse_kwargs: dict):
     """
@@ -597,12 +574,12 @@ def fuse(
         Options for chunked fusion when output_zarr_url is provided. Keys:
         - batch_func: Callable, optional
             Function to process each batch of fused chunks. Inputs:
-            1) a list of block_id(s)
+            1) block_id(s)
             2) function that performs fusion when passed a given block_id
-            By default None, in which case the each block is processed sequentially.
-        - n_batch: int
-            Number of blocks to process in each batch
-            (n_batch>1 only compatible with a provided batch_func). By default 1.
+            By default None, in which case each block is processed sequentially.
+        - max_workers: int
+            Number of workers to process the blocks in parallel
+            (max_workers=1 means sequential processing). By default 1.
         - batch_func_kwargs: dict, optional
             Additional keyword arguments passed to batch_func.
     Returns
@@ -616,7 +593,7 @@ def fuse(
         # Collect batch options with defaults
         batch_options = batch_options or {}
         batch_func = batch_options.get("batch_func", None)
-        n_batch = batch_options.get("n_batch", 1)
+        max_workers = batch_options.get("max_workers", 1)
         batch_func_kwargs = batch_options.get("batch_func_kwargs", None)
         zarr_array_creation_kwargs = batch_options.get("zarr_array_creation_kwargs", None)
 
@@ -657,7 +634,7 @@ def fuse(
             "blending_widths": blending_widths,
         }
 
-
+        # Prepare block fusion and process in batches
         block_fusion_info = prepare_block_fusion(
             store_url,
             fuse_kwargs=per_chunk_fuse_kwargs,
@@ -672,35 +649,25 @@ def fuse(
         batch_func_kwargs.update({
             "meta": meta,
             "fuse_kwargs": worker_fuse_kwargs,
-            "max_workers": n_batch,
+            "max_workers": max_workers,
         })
 
         if batch_func is None:
             print(f'Fusing {np.prod(nblocks)} blocks sequentially...')
-            for batch in tqdm(
-                misc_utils.ndindex_batches(nblocks, n_batch),
-                total=int(np.ceil(np.prod(nblocks) / n_batch)),
-            ):
+            #for batch in tqdm(
+            #    misc_utils.ndindex_batches(nblocks, n_batch),
+            #    total=int(np.ceil(np.prod(nblocks) / n_batch)),
+            #):
                     
-                # Sequential fallback
-                all_block_ids = list(np.ndindex(*nblocks))
-                for block_id in batch:
-                    fuse_one_block_worker(block_id, meta=meta, 
-                                        fuse_kwargs=worker_fuse_kwargs)
+            # Sequential fallback
+            all_block_ids = list(np.ndindex(*nblocks))
+            for block_id in all_block_ids:
+                fuse_one_block_worker(block_id, meta=meta, 
+                                      fuse_kwargs=worker_fuse_kwargs)
 
         else:
-            batch_func(nblocks=nblocks, #fuse_func=fuse_one_block_worker,
-                        **batch_func_kwargs)
+            batch_func(nblocks=nblocks, **batch_func_kwargs)
 
-
-        # Prepare block fusion and process in batches
-        #block_fusion_info = prepare_block_fusion(
-        #    store_url,
-        #    fuse_kwargs=per_chunk_fuse_kwargs,
-        #    zarr_array_creation_kwargs=zarr_array_creation_kwargs,
-        #)
-        #fuse_chunk = block_fusion_info["func"]
-        #nblocks = block_fusion_info["nblocks"]
         osp = block_fusion_info["output_stack_properties"]
         osp["shape"] = {dim: int(v) for dim, v in osp["shape"].items()}
 

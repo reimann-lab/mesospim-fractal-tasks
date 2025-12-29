@@ -45,7 +45,7 @@ def stitch_with_multiview_stitcher(
     overlap_tolerance: DimTuple = DimTuple(z=0, y=0, x=0),
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
-    max_workers: int = 1,
+    max_workers: int = 4,
     fusion_chunksize: Optional[DimTuple] = None,
 ) -> None:
     """Stitches FOVs from an OME-Zarr image.
@@ -98,12 +98,12 @@ def stitch_with_multiview_stitcher(
                 useful for regular grid arrangements and to explicitely prune diagonals, 
                 e.g. when other methods fail.
         max_workers: Maximum number of workers to process blocks in parallel. Should not 
-            be more than number of available workers. Default: 1.
+            be more than number of available workers. If set to one, it falls back to
+            sequential processing. Default: 1.
         fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing 
-            the fusion. It impacts the memory usage and the time to fuse the tiles. 
-            If None, the chunksize of the raw image is used. In case of 
-            registration_on_z_proj=True, chunksize for the Z dimension is set to the 
-            number of z planes.
+            the fusion. It impacts the memory usage and the time to fuse the tiles. It 
+            also corresponds to the chunksize of the output zarr.
+            If None, the chunksize of the raw image is used.
     """
 
     zarr_path = Path(zarr_url)
@@ -196,10 +196,6 @@ def stitch_with_multiview_stitcher(
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
         msims_fusion = msims_reg
-    else:
-        if registration_on_z_proj:
-            fusion_chunksize = (z_dim, fusion_chunksize[1], 
-                                fusion_chunksize[2])
         
         # Load the full-resolution image for fusion
         xim_well = get_sim_from_multiscales(zarr_path, 
@@ -246,6 +242,9 @@ def stitch_with_multiview_stitcher(
         max_workers = n_cpus
         logger.warning("Number of processes is greater than available number of workers"
                        "... Setting to the number of available CPUs. ")
+    elif max_workers == 1:
+        batch_options = {"zarr_array_creation_kwargs": {"dimension_separator": "/"},
+                         "max_workers": max_workers},
     
     logger.info(f"Starting fusing tiles...")
     fused = fusion.fuse(
@@ -256,7 +255,7 @@ def stitch_with_multiview_stitcher(
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
         output_zarr_url=output_zarr_final,
         batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/"},
-                       "n_batch": max_workers,
+                       "max_workers": max_workers,
                        "batch_func": parallel_block_processing,
                     },
     )

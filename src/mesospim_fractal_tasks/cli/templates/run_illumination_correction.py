@@ -4,26 +4,26 @@ import os
 from concurrent.futures import ProcessPoolExecutor
 
 
+###############################################################################
+# Set the parameters of the task function
+
+# e.g. ["data/zarr/sampleA/sampleA.zarr/raw_image"]
+zarr_urls = ["path/to/zarr/image"] 
+
+# e.g. "data/zarr/sampleA"                   
+zarr_dir = "path/to/zarr/directory"
+
+# e.g. True or False                  
+z_correction = False                                  
+
+###############################################################################
+
+
+
 def worker(args):
     return correct_illumination(**args)
 
 if __name__ == "__main__":
-
-
-
-
-    ###############################################################################
-    # Set the parameters of the task function
-
-    zarr_urls = ["path/to/zarr/image"]                    # e.g. ["data/zarr/sampleA/sampleA.zarr/raw_image"]
-    zarr_dir = "path/to/zarr/directory"                   # e.g. "data/zarr/sampleA"
-    z_correction = False                                  # e.g. True or False
-    
-    ###############################################################################
-
-
-
-
 
     N_WORKERS = os.cpu_count() or 1
     init_dict = init_correct_illumination(

@@ -3,27 +3,29 @@ from mesospim_fractal_tasks.tasks.init_crop_regions_of_interest import init_crop
 import os
 from concurrent.futures import ProcessPoolExecutor
 
+
+###############################################################################
+# Set the parameters of the task function
+
+# e.g. ["data/zarr/sampleA/sampleA.zarr/raw_image"]
+zarr_urls = ["path/to/zarr/image"]    
+
+# e.g. "data/zarr/sampleA"
+zarr_dir = "path/to/zarr/directory"
+
+# e.g. number of pyramid levels to build         
+num_levels = 2
+
+# e.g. name of the table holding the ROI crop coordinates                     
+roi_table_name = "roi_coords"                         
+
+###############################################################################
+
+
 def worker(args):
     return crop_regions_of_interest(**args)
 
 if __name__ == "__main__":
-
-    N_WORKERS = os.cpu_count() or 1
-
-
-
-
-    ###############################################################################
-    # Set the parameters of the task function
-
-    zarr_urls = ["path/to/zarr/image"]                    # e.g. ["data/zarr/sampleA/sampleA.zarr/raw_image"]
-    zarr_dir = "path/to/zarr/directory"                   # e.g. "data/zarr/sampleA"
-    num_levels = 2                                        # e.g. number of pyramid levels to build
-    roi_table_name = "roi_coords"                         # e.g. name of the table holding the ROI crop coordinates
-
-    ###############################################################################
-
-
 
     N_WORKERS = os.cpu_count() or 1
     init_dict = init_crop_regions_of_interest(

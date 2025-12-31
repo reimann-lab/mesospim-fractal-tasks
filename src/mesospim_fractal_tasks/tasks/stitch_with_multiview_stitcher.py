@@ -47,7 +47,7 @@ def stitch_with_multiview_stitcher(
     pre_registration_pruning_method: str = "keep_axis_aligned",
     max_workers: int = 4,
     fusion_chunksize: Optional[DimTuple] = None,
-) -> None:
+) -> dict[str, dict]:
     """Stitches FOVs from an OME-Zarr image.
 
     Performs registration and fusion of FOVs indicated
@@ -67,7 +67,7 @@ def stitch_with_multiview_stitcher(
             Available functions:
             - 'phase_correlation': (default).
             - 'antspy': see ANTsPy documentation for more information.
-        overlap_tolerance: float or dict, optional
+        overlap_tolerance:
             Extend overlap regions considered for pairwise registration.
             - if 0, the overlap region is the intersection of the tiles.
             - if > 0, the overlap region is the intersection of the tiles
@@ -111,7 +111,7 @@ def stitch_with_multiview_stitcher(
                 f"for {zarr_path.parent}/{zarr_path.name}")
 
     # Parse and log several NGFF-image metadata attributes
-    ngff_image_meta = load_NgffImageMeta(zarr_path)
+    ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     fov_roi_table = ad.read_zarr(Path(zarr_path, "tables/FOV_ROI_table")).to_df()
     input_transform_key = "fractal_input"
 
@@ -143,6 +143,11 @@ def stitch_with_multiview_stitcher(
     omero_channel = channel.get_omero_channel(zarr_path)
     if omero_channel:
         reg_channel_index = omero_channel.index
+        if reg_channel_index is None:
+            logger.error(
+            f"Error. {channel} has no index in that OME-Zarr image."
+        )
+        raise ValueError
     else:
         logger.error(
             f"Error. {channel} is not available in that OME-Zarr image."
@@ -158,22 +163,24 @@ def stitch_with_multiview_stitcher(
         raise ValueError(f"Error. Unknown registration function: {registration_function}."
                     " Available functions are 'phase_correlation', 'antspy'.")
     elif registration_function == "antspy":
-        registration_function = registration.registration_ANTsPy
+        registration_callable = registration.registration_ANTsPy
     else:
-        registration_function = registration.phase_correlation_registration
+        registration_callable = registration.phase_correlation_registration
 
     fusion_transform_key = "translation_registered"
-    overlap_tolerance = overlap_tolerance.get_dict()
-    n_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count()))
+    overlap_tolerance_dict = overlap_tolerance.get_dict()
+    n_cpus = os.environ.get("SLURM_CPUS_PER_TASK", os.cpu_count())
     if n_cpus == None:
         n_cpus = 1
+    else:
+        n_cpus = int(n_cpus)
     registration.register(
         msims_reg,
         transform_key=input_transform_key,
         new_transform_key=fusion_transform_key,
         reg_channel_index=reg_channel_index,
-        pairwise_reg_func=registration_function,
-        overlap_tolerance=overlap_tolerance,
+        pairwise_reg_func=registration_callable,
+        overlap_tolerance=overlap_tolerance_dict,
         registration_binning={dim: 1 for dim in reg_spatial_dims},
         groupwise_resolution_kwargs={"transform": transform_type},
         n_parallel_pairwise_regs=n_cpus,
@@ -276,6 +283,24 @@ def stitch_with_multiview_stitcher(
     )
     logger.info("Finished building resolution pyramid")
 
+        # Add ROI table to the image
+    ngff_image_meta.get_pixel_sizes_zyx(level=0)
+    pixels_ZYX = (
+        ngff_image_meta.multiscales[0]
+        .datasets[0]
+        .coordinateTransformations[0]
+        .scale[-3:]
+    )
+    new_group = zarr.open(output_zarr_path, mode="a")
+    image_ROI_table = get_single_image_ROI(new_shape, pixels_ZYX=pixels_ZYX)
+    write_table(
+        new_group,
+        "well_ROI_table",
+        image_ROI_table,
+        overwrite=True,
+        table_attrs={"type": "roi_table"},
+    )
+
     # Copy NGFF metadata from the old zarr_url to the new zarr
     logger.info(f"Copying NGFF metadata from {zarr_path.name}"
                 f" to {output_zarr_path.name}.")
@@ -288,11 +313,11 @@ def stitch_with_multiview_stitcher(
         version=__version__.split("dev")[0][:-1],
         commit=__commit__,
         input_parameters=dict(
-            channel=channel,
+            channel=channel.label,
             registration_resolution_level=registration_resolution_level,
             registration_on_z_proj=registration_on_z_proj,
             registration_function=registration_function,
-            overlap_tolerance=overlap_tolerance,
+            overlap_tolerance=overlap_tolerance_dict,
             transform_type=transform_type,
             pre_registration_pruning_method=pre_registration_pruning_method,
             max_workers=max_workers,
@@ -302,26 +327,8 @@ def stitch_with_multiview_stitcher(
 
     fractal_tasks["stitching_with_multiview_stitcher"] = task_dict
     source_attrs["fractal_tasks"] = fractal_tasks
-    new_group = zarr.open(output_zarr_path, mode="a")
     new_group.attrs.put(source_attrs)
     logger.info("Finished copying NGFF metadata.")
-
-    # Add ROI table to the image
-    ngff_image_meta.get_pixel_sizes_zyx(level=0)
-    pixels_ZYX = (
-        ngff_image_meta.multiscales[0]
-        .datasets[0]
-        .coordinateTransformations[0]
-        .scale[-3:]
-    )
-    image_ROI_table = get_single_image_ROI(new_shape, pixels_ZYX=pixels_ZYX)
-    write_table(
-        new_group,
-        "well_ROI_table",
-        image_ROI_table,
-        overwrite=True,
-        table_attrs={"type": "roi_table"},
-    )
 
     # Prepare the image list update
     image_list_updates = dict(

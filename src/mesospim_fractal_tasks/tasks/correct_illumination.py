@@ -262,7 +262,7 @@ def correct_illumination(
         # Write to disk
         logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
         corrected_FOV.to_zarr(
-            url=zarr.open(Path(new_zarr_path, "0")),
+            url=zarr.open(str(new_zarr_path / "0")),
             region=region,
             compute=True,
         )
@@ -281,13 +281,9 @@ def correct_illumination(
                   slice(None))
         down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
         down_channel_arr.to_zarr(
-            url=zarr.open(new_zarr_path / str(level+1)), 
+            url=zarr.open(str(new_zarr_path / str(level+1))), 
             region=region, 
             overwrite=True)
-
-    sync_path = new_zarr_path / ".zarr_process.lock"
-    synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path))
-    store = zarr.storage.DirectoryStore(str(new_zarr_path))
         
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:
@@ -312,22 +308,8 @@ def correct_illumination(
         )
         fractal_tasks["correct_illumination"] = task_dict
         source_attrs["fractal_tasks"] = fractal_tasks
-        new_group = zarr.open_group(store=store, synchronizer=synchronizer, mode="a")
+        new_group = zarr.open_group(str(new_zarr_path), mode="a")
         new_group.attrs.put(source_attrs)
-
-    # Determine optimal contrast limits
-    contrast_limits = _determine_optimal_contrast(
-        new_zarr_path, 
-        num_levels, 
-        channel_index=channel_index, 
-        segment_sample=True, 
-        synchronizer=synchronizer
-    )
-    _update_omero_channels(
-        new_zarr_path, 
-        {"window": contrast_limits}, 
-        synchronizer=synchronizer
-    )
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

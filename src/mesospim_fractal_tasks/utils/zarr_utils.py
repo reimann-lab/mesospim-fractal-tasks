@@ -5,9 +5,7 @@ from typing import Any, Union, Optional
 from skimage.measure import block_reduce
 import numpy as np
 from pathlib import Path
-#from filelock import FileLock
 from zarr.storage import DirectoryStore
-from zarr.sync import ProcessSynchronizer
 
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
@@ -20,8 +18,7 @@ def _determine_optimal_contrast(
     image_path: Path,
     num_levels: int,
     channel_index: Optional[int] = None,
-    segment_sample: bool = False, 
-    synchronizer: zarr.sync.ProcessSynchronizer = None
+    segment_sample: bool = False
 ) -> dict[str, dict[str, int]]:
     """
     Determine the optimal contrast limits for the image.
@@ -41,10 +38,7 @@ def _determine_optimal_contrast(
 
     # Load the lowest resolution image
     store = DirectoryStore(str(image_path))
-    if synchronizer is not None:
-        image_group = zarr.open_group(store=store, mode="r", synchronizer=synchronizer)
-    else:
-        image_group = zarr.open_group(store=store, mode="r")
+    image_group = zarr.open_group(store=store, mode="r")
     low_res_arr = image_group[str(num_levels-1)]
 
     # Determine the percentile for the contrast limits
@@ -66,8 +60,7 @@ def _determine_optimal_contrast(
 
 def _update_omero_channels(
         zarr_path: Path,
-        update_dict: dict[str, Any],
-        synchronizer: zarr.sync.ProcessSynchronizer = None,
+        update_dict: dict[str, Any]
     ) -> None:
     """
     Update the OMERO channels in the OME-ZARR metadata.
@@ -84,10 +77,7 @@ def _update_omero_channels(
 
     # Open store + group with synchronizer
     store = DirectoryStore(str(zarr_path))
-    if synchronizer is not None:
-        zarr_group = zarr.open_group(store=store, mode="r+", synchronizer=synchronizer)
-    else:
-        zarr_group = zarr.open_group(store=store, mode="r+")
+    zarr_group = zarr.open_group(store=store, mode="r+")
     channels_attrs = zarr_group.attrs["omero"]["channels"]
 
     for c in range(len(channels_attrs)):

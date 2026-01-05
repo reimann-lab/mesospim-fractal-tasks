@@ -141,6 +141,8 @@ def compute_basicpy_models(
         sort_intensity=advanced_basicpy_model_params.sort_intensity,
         sparse_cost_darkfield=advanced_basicpy_model_params.sparse_cost_darkfield,
         working_size=advanced_basicpy_model_params.working_size,
+        baseline=advanced_basicpy_model_params.baseline,
+        resize_params=advanced_basicpy_model_params.resize_params
     )
 
     if np.shape(FOV_data)[0] == 1:
@@ -268,7 +270,7 @@ def collect_fovs(
 def correct(
     img_stack: np.ndarray,
     illum_profiles: IlluminationModel,
-) -> da.Array:
+) -> np.ndarray:
     """
     Apply flatfield/darkfield correction to all fields of view.
 
@@ -328,11 +330,11 @@ def correct(
     # Background subtraction
     if illum_profiles.baseline is not None:
         logger.info(f"Subtracting baseline of {illum_profiles.baseline} pixels.")
-        img_stack = da.where(img_stack > illum_profiles.baseline,
+        img_stack = np.where(img_stack > illum_profiles.baseline,
                              img_stack - illum_profiles.baseline, 0)
         
     # Clip lazily
-    new_img_stack = da.clip(img_stack, 0, dtype_max)   
+    new_img_stack = np.clip(img_stack, 0, dtype_max)   
     logger.info("Finished illumination correction.")
 
     # Cast back to original dtype and return
@@ -389,7 +391,7 @@ def correct_flatfield(
     advanced_basicpy_model_params: BaSiCPyModelParams = Field(
         default_factory=BaSiCPyModelParams),
     input_ROI_table: str = "FOV_ROI_table",
-) -> None:
+) -> dict[str, list]:
 
     """
     Perform flatfield (and darkfield) correction using either BaSiCPy or empty FOVs 
@@ -468,7 +470,7 @@ def correct_flatfield(
             )
 
         if init_args["saving_path"] is not None:
-            illum_profiles.save_models(path=init_args["saving_path"])
+            illum_profiles.save_models(folder=init_args["saving_path"])
     else:
         # Load illumination model
         logger.info(
@@ -505,6 +507,7 @@ def correct_flatfield(
 
     # Lazily load highest-res level from original zarr array
     image_arr = da.from_zarr(Path(zarr_path, "0"))
+    new_image_arr = zarr.open_array(str((new_zarr_path / "0"))),
 
     # Iterate over FOV ROIs
     num_ROIs = len(list_indices)
@@ -528,11 +531,12 @@ def correct_flatfield(
 
         # Write to disk
         logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-        corrected_fov.to_zarr(
-            url=zarr.open(new_zarr_path / "0"),
-            region=region,
-            compute=True,
-        )
+        new_image_arr[region] = corrected_fov # type: ignore
+        #corrected_fov.to_zarr( # type: ignore
+        #    url=zarr.open(str((new_zarr_path / "0"))),
+        #    region=region,
+        #    compute=True,
+        #)
 
     logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
     for level in range(0, num_levels-1):
@@ -548,13 +552,14 @@ def correct_flatfield(
                   slice(None))
         down_channel_arr = down_channel_arr.rechunk(image_arr.chunksize)
         down_channel_arr.to_zarr(
-            url=zarr.open(new_zarr_path / str(level+1)), 
+            url=zarr.open(str(new_zarr_path / str(level+1))), 
             region=region, 
             overwrite=True)
         
-    sync_path = new_zarr_path / ".zarr_process.lock"
-    synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path))
-    store = zarr.storage.DirectoryStore(str(new_zarr_path))
+    #sync_path = new_zarr_path / ".zarr_process.lock"
+    #synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path)) # type: ignore
+    #store = zarr.storage.DirectoryStore(str(new_zarr_path)) # type: ignore
+    new_group = zarr.open_group(str(new_zarr_path), mode="a")
     
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:
@@ -587,23 +592,8 @@ def correct_flatfield(
             )
         )
         fractal_tasks["correct_flatfield"] = task_dict
-        source_attrs["fractal_tasks"] = fractal_tasks
-        new_group = zarr.open_group(store=store, synchronizer=synchronizer, mode="a")
+        source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
         new_group.attrs.put(source_attrs)
-
-    # Determine optimal contrast limits
-    contrast_limits = _determine_optimal_contrast(
-        new_zarr_path, 
-        num_levels, 
-        channel_index=channel_index, 
-        segment_sample=True, 
-        synchronizer=synchronizer
-    )
-    _update_omero_channels(
-        new_zarr_path, 
-        {"window": contrast_limits}, 
-        synchronizer=synchronizer
-    )
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

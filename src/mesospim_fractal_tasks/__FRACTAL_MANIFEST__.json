@@ -322,7 +322,7 @@
               "working_size": {
                 "title": "Working Size",
                 "type": "integer",
-                "description": "Maximal size in pixels of the XY plane analysed by BaSiCPy. "
+                "description": "Maximal size in pixels of the XY plane analysed by BaSiCPy."
               }
             },
             "title": "BaSiCPyModelParams",
@@ -641,7 +641,7 @@
               "x": 0.0
             },
             "title": "Overlap Tolerance",
-            "description": "float or dict, optional Extend overlap regions considered for pairwise registration. - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
+            "description": "Extend overlap regions considered for pairwise registration. - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
           },
           "transform_type": {
             "default": "translation",

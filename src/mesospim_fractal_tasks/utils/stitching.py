@@ -100,14 +100,17 @@ def parallel_block_processing(
                 break
             in_flight.add(ex.submit(_worker, bid))
 
-        pbar = tqdm(total=total, desc="Fusing blocks")
+        n_completed = 0
         while in_flight:
             done, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
 
             # collect results + surface exceptions
             for fut in done:
                 _ = fut.result()
-                pbar.update(1)
+                n_completed += 1
+            
+            if n_completed % 100 == 0:
+                logger.info(f"{n_completed/total:.0f}% completed!") 
 
             # submit new tasks to keep the pipeline full (bounded)
             for _ in range(len(done)):
@@ -115,8 +118,6 @@ def parallel_block_processing(
                 if bid is None:
                     break
                 in_flight.add(ex.submit(_worker, bid))
-
-        pbar.close()
 
 def phase_correlation_registration(
     fixed_data,

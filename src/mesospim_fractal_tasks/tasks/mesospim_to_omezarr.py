@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 def load_channel_colors(
-    user_channels_path: str = "default"
+    user_channels_path: str | Path = "default"
 ) -> dict:
     """
     Load the channel colors from a JSON file.
@@ -123,8 +123,9 @@ def write_ome_zarr_metadata(
 
         # Prepare the OMERO channel info
         logger.info("Preparing OMERO display metadata...")
+        labels = meta_df["channel"].unique()
         omero_channels = []
-        for c, label in enumerate(meta_df["channel"].unique()):
+        for c, label in enumerate(labels):
             channel = channel_mapping[str(label)]
             if contrast_limits is None:
                 contrast_end = (2**16 - 1)
@@ -161,7 +162,7 @@ def write_ome_zarr_metadata(
         # Prepare the acquisition metadata
         logger.info("Writing acquisition metadata...")
         acquisition_info = []
-        for label in meta_df["channel"].unique():
+        for label in labels:
             channel_df = meta_df[meta_df["channel"] == label]
             channel_df.index = range(len(channel_df))
             acquisition_info.append({
@@ -326,7 +327,7 @@ def read_metadata(
             "z_n_pixels"]] = meta_df[["x_n_pixels", 
                                     "y_n_pixels", 
                                     "z_n_pixels"]].astype("int")
-    if meta_df.loc[0, "intensity"] > 1:
+    if meta_df.loc[0, "intensity"] > 1: # type: ignore
         meta_df["intensity"] = meta_df["intensity"] / 100
 
     logger.info(f"Parsed metadata for {len(meta_df['channel'].unique())} channels.")
@@ -364,8 +365,7 @@ def convert_raw(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes,
-    mem_fraction: float = 0.3
+    chunk_sizes: ChunkSizes
 ) -> None:
     """
     Convert raw files that matches the basename in provided directory to zarr.
@@ -401,12 +401,11 @@ def convert_raw(
             concat_filenames = ""
             for file in files:
                 concat_filenames += file.stem
-            channels = [meta_df.loc[i, "channel"] for i in range(len(meta_df))]
+            channels = [str(meta_df.loc[i, "channel"]) for i in range(len(meta_df))]
             for channel in channels:
                 if channel not in concat_filenames:
                     raise ValueError("No raw file found that correspond to expected "
                                      f"channel {channel}.")
-    
     zarr_shape = [len(files), meta_df.loc[0,"z_n_pixels"], meta_df.loc[0, "y_n_pixels"], 
                   meta_df.loc[0, "x_n_pixels"]]
     logger.info(f"Creating zarr dataset of size {zarr_shape[0]} x "
@@ -415,10 +414,10 @@ def convert_raw(
     logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
     
     image_arr = zarr.create(
-        shape=zarr_shape,
+        shape=tuple(zarr_shape),
         chunks=chunk_sizes.get_chunksize(),
         dtype=np.uint16,
-        store=zarr.storage.FSStore(Path(image_path, "0")),
+        store=zarr.storage.FSStore(Path(image_path, "0")), # type: ignore
         overwrite=True,
         dimension_separator="/",
     )

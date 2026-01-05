@@ -100,7 +100,9 @@ class BaSiCPyModelParams(BaseModel):
         smoothness_flatfield: Weight of the flatfield term in the Lagrangian.
         sort_intensity: Whether or not to sort the intensities of the image.
         sparse_cost_darkfield: Size for running computations. None means no rescaling.
-        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy.  
+        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy.
+        baseline: Holds the baseline for the shading model.
+        resize_params: Parameters for the resize function when downsampling images.
     """
 
     autosegment: bool = False
@@ -126,4 +128,6 @@ class BaSiCPyModelParams(BaseModel):
     sort_intensity: bool = False
     sparse_cost_darkfield: float = 0.01
     working_size: Optional[int] = None
+    baseline: Optional[np.ndarray] = None
+    resize_params: dict = {}
 

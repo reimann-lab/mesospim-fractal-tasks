@@ -11,45 +11,42 @@ Local execution relies on small Python files that act as “task launchers,” e
 
 ---
 
-# Procedure
+## Procedure
 
 Below is the recommended workflow for running tasks locally.
 
-## 1. Copy the Python File Templates
+  1. Copy the Python File Templates
 
-Template files are stored in the repository and kept up to date with each release.  
-Each template includes a complete list of parameters for a specific task.
+    Template files are stored in the repository and kept up to date with each release.  
+    Each template includes a complete list of parameters for a specific task.
 
-To avoid accidentally editing the original files, you should **copy** the templates before modifying them.  
-This only needs to be done once unless you want to refresh them later.
+    To avoid accidentally editing the original files, you should **copy** the templates before modifying them.  
+    This only needs to be done once unless you want to refresh them later.
 
-```bash
-cd path/to/mesospim-fractal-tasks
-copy-templates
-```
+        cd path/to/mesospim-fractal-tasks
+        copy-templates  
 
-```powershell
-cd C:\path\to\mesospim-fractal-tasks
-copy-templates
-```
+    Or for Windows:
+    
+        cd C:\path\to\mesospim-fractal-tasks
+        copy-templates  
 
-This will generate editable files in the current directory, following the naming pattern:
-```
-run_<taskname>.py
-```
+    This will generate editable files in the current directory, following the naming pattern:  
+        
+        run_<taskname>.py
 
-## Edit Template File
+  2. Edit Template File
 
-Before running the task, you need to edit the template file to set the parameters specific to your dataset. This 
-includes the path to the OME-Zarr image to process for example.
+    Before running the task, you need to edit the template file to set the parameters specific to your dataset. This 
+    includes the path to the OME-Zarr image to process for example.
 
-## Run the task
+  3. Run the task
 
-Once the template file is edited, you can run the task using the following command:
+    Once the template file is edited, you can run the task using the following command:
 
-```bash
-python run_<taskname>.py
-```
+
+        python run_<taskname>.py
+
 
 !!! tip 
     In case the list of parameters has been compromised, you can reiterate the copying step to retrieve the latest version of the template files.

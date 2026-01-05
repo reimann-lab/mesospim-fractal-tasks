@@ -3,6 +3,7 @@
 This section explains how to run the mesoSPIM processing tasks within
 the **Fractal platform** using workflows.
 
+---
 ## Prerequisites
 
 A working Fractal installation.  
@@ -19,14 +20,14 @@ This guide explains how to:
 - run workflows
 - visualise outputs
 
+---
 ## Selecting MesoSPIM Tasks
 
-Normally, the mesospim-fractal-tasks task package should be available in the list of collections of tasks provided by Fractal under the **Tasks** Tab. In case it is not present, the task package can be manually collected by providing a wheel file of the current package:
+The mesospim-fractal-tasks task package should be available in the list of collections of tasks provided by Fractal under the **Tasks** Tab. In case it is not present, the task package can be manually collected by providing a wheel file of the current package:
 
 1. Download a wheel file of the package from the github repository (under releases) 
 2. On Fractal website, go to the **Tasks** tab and click on **Manage Tasks**
 3. Select **Local wh** for the **package type**
 4. Provide the path to the wheel file of the mesospim-fractal-tasks package previously downloaded
-5. Select the option **private task**
-6. Run **Collect**
-
+5. Select the option **private task** (optional)
+6. Run **Collect** 

@@ -44,5 +44,3 @@ The task runs in parallel over the channels. There is a initialisation step befo
 ```bash
 python run_illumination_correction.py 
 ```
-
----

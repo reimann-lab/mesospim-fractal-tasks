@@ -7,10 +7,9 @@ It supports three different scenarios depending on what information is available
 ## Scenarios
 ### 1. Flatfield image available (recommended)
 If you already have a measured flat-field, you can provide it directly:  
-
-- The flat-field must be stored in a `profiles.npz` named under the key `flatfield`.  
-- The file `profiles.npz` must be located in a folder named after each channel label  
-- You give the **path to the directory** containing all the channel folders (see Parameters).  
+    - The flat-field must be stored in a `profiles.npz` named under the key `flatfield`.  
+    - The file `profiles.npz` must be located in a folder named after each channel label  
+    - You give the **path to the directory** containing all the channel folders (see Parameters).  
 
 The task loads then the flatfield image and uses it to correct the raw data. This produces the most accurate correction.
 
@@ -24,15 +23,15 @@ There are two ways to specify empty data:
 
 #### **A. Whole empty tiles**
 If one or more entire tiles are empty:  
-- Set the **tile index/indices** in the parameters.
+    - Set the **tile index/indices** in the parameters.
 
 If tile indices are provided, the task extracts those tiles and uses them for the estimation.
 
 #### **B. Only part of a tile is empty**
 If there is no full tiles that contain only background but there is enough background at 
 the **top or bottom** of tiles:  
-- Provide the **start** and **end** Z-levels of the empty region.  
-- Provide the **tile index/indices** where these subvolumes must be extracted (optional).  
+    - Provide the **start** and **end** Z-levels of the empty region.  
+    - Provide the **tile index/indices** where these subvolumes must be extracted (optional).  
 
 The task will then extract a subvolume up to the **Z start** and down to the **Z end**, and uses it for the estimation.
 
@@ -46,10 +45,11 @@ If your dataset contains **no empty tiles or background regions**, the task comp
 
 This method works even when the sample fills most of the field of view. It produces a robust estimation even when no explicit flat-field can be derived. it is however more computationally expensive and should be used only when no flat-field is available.
 It is set when:  
-- No tile index/indices are provided.
-- No start/end Z-levels are provided.
-- No flat-field image is provided.
-- 
+
+- No tile index/indices are provided.  
+- No start/end Z-levels are provided.  
+- No flat-field image is provided.  
+
 ---
 
 ### Summary
@@ -99,5 +99,3 @@ The task runs in parallel over the channels. There is a initialisation step befo
 ```bash
 python run_flatfield_correction.py 
 ```
-
----

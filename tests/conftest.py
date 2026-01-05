@@ -159,6 +159,8 @@ def mock_flatfield_env(
         module + ".zarr.open_group")
     mocks["zarr_open"] = mocker.patch(
         module + ".zarr.open")
+    mocks["zarr_open_array"] = mocker.patch(
+        module + ".zarr.open_array")
     mocks["coarsen"] = mocker.patch(
         module + ".da.coarsen")
     mocks["copy_tables"] = mocker.patch(

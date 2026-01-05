@@ -140,10 +140,8 @@ def compute_basicpy_models(
         smoothness_flatfield=advanced_basicpy_model_params.smoothness_flatfield,
         sort_intensity=advanced_basicpy_model_params.sort_intensity,
         sparse_cost_darkfield=advanced_basicpy_model_params.sparse_cost_darkfield,
-        working_size=advanced_basicpy_model_params.working_size,
-        baseline=advanced_basicpy_model_params.baseline,
-        resize_params=advanced_basicpy_model_params.resize_params
-    )
+        working_size=advanced_basicpy_model_params.working_size
+    ) # type: ignore
 
     if np.shape(FOV_data)[0] == 1:
         logger.info(f"Stack of ROIs shape is {FOV_data[0, :, :, :].shape}.")
@@ -507,7 +505,7 @@ def correct_flatfield(
 
     # Lazily load highest-res level from original zarr array
     image_arr = da.from_zarr(Path(zarr_path, "0"))
-    new_image_arr = zarr.open_array(str((new_zarr_path / "0"))),
+    new_image_arr = zarr.open_array(str((new_zarr_path / "0")))
 
     # Iterate over FOV ROIs
     num_ROIs = len(list_indices)
@@ -555,11 +553,6 @@ def correct_flatfield(
             url=zarr.open(str(new_zarr_path / str(level+1))), 
             region=region, 
             overwrite=True)
-        
-    #sync_path = new_zarr_path / ".zarr_process.lock"
-    #synchronizer = zarr.sync.ProcessSynchronizer(str(sync_path)) # type: ignore
-    #store = zarr.storage.DirectoryStore(str(new_zarr_path)) # type: ignore
-    new_group = zarr.open_group(str(new_zarr_path), mode="a")
     
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:
@@ -593,6 +586,7 @@ def correct_flatfield(
         )
         fractal_tasks["correct_flatfield"] = task_dict
         source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
+        new_group = zarr.open_group(str(new_zarr_path), mode="a")
         new_group.attrs.put(source_attrs)
 
     image_list_updates = dict(

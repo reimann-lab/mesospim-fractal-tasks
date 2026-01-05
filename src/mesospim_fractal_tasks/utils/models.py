@@ -13,13 +13,13 @@ class DimTuple(BaseModel):
     """
     Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.
     """
-    z: float = None
-    y: float = None
-    x: float = None
+    z: float | None = None
+    y: float | None = None
+    x: float | None = None
 
     def get_dict(self):
         d = dict()
-        for key, value in self.dict().items():
+        for key, value in self.model_dump().items():
             if value is not None:
                 d[key] = value
         return d
@@ -101,9 +101,10 @@ class BaSiCPyModelParams(BaseModel):
         sort_intensity: Whether or not to sort the intensities of the image.
         sparse_cost_darkfield: Size for running computations. None means no rescaling.
         working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy.
-        baseline: Holds the baseline for the shading model.
-        resize_params: Parameters for the resize function when downsampling images.
     """
+    model_config = ConfigDict(
+        arbitrary_types_allowed=True
+    )
 
     autosegment: bool = False
     autosegment_margin: int = 10
@@ -128,6 +129,4 @@ class BaSiCPyModelParams(BaseModel):
     sort_intensity: bool = False
     sparse_cost_darkfield: float = 0.01
     working_size: Optional[int] = None
-    baseline: Optional[np.ndarray] = None
-    resize_params: dict = {}
 

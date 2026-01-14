@@ -7,7 +7,7 @@ import json
 from importlib import resources
 import fractal_tasks_core
 from fractal_tasks_core.tasks.io_models import ChunkSizes
-from fractal_tasks_core.pyramids import build_pyramid
+#from fractal_tasks_core.pyramids import build_pyramid
 from fractal_tasks_core.ngff.specs import NgffImageMeta
 from fractal_tasks_core.roi import prepare_FOV_ROI_table, prepare_well_ROI_table
 from fractal_tasks_core.tables import write_table
@@ -19,7 +19,7 @@ import dask.array as da
 import tifffile as tiff
 import h5py
 
-from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast
+from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast, build_pyramid
 from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
@@ -899,8 +899,32 @@ def mesospim_to_omezarr(
 
 if __name__ == "__main__":
     from fractal_task_tools.task_wrapper import run_fractal_task
+    from dask.distributed import Client, LocalCluster
+    import os
 
-    run_fractal_task(
-        task_function=mesospim_to_omezarr, 
-        logger_name=logger.name,
-        )
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    os.environ.setdefault("MKL_NUM_THREADS", "1")
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
+    workers = os.environ.get("SLURM_CPUS_PER_TASK", None)
+    if workers is None:
+        workers = os.cpu_count()
+        if workers is None:
+            workers = 1
+    workers = int(workers)
+
+
+    cluster = LocalCluster(
+        n_workers=workers,
+        threads_per_worker=1,
+        processes=True,
+        dashboard_address=None,
+        silence_logs=logging.ERROR,
+    )
+
+    with Client(cluster) as client:
+        run_fractal_task(
+            task_function=mesospim_to_omezarr, 
+            logger_name=logger.name,
+            )

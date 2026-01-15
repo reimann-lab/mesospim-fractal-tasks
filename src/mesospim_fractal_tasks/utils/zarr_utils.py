@@ -154,7 +154,7 @@ def _determine_optimal_contrast(
     # Load the lowest resolution image
     store = DirectoryStore(str(image_path))
     image_group = zarr.open_group(store=store, mode="r")
-    low_res_arr = image_group[str(num_levels-1)]
+    low_res_arr = image_group[str(num_levels-1)][:,::2,::2,::2]
 
     # Determine the percentile for the contrast limits
     contrast_limits = {}
@@ -164,7 +164,8 @@ def _determine_optimal_contrast(
         channel_list = range(low_res_arr.shape[0])
     for c in channel_list:
         if segment_sample:
-            sample_mask = low_res_arr[c] > np.percentile(low_res_arr[c], 50)
+            sample_threshold = np.percentile(low_res_arr[c], 50)
+            sample_mask = low_res_arr[c] > sample_threshold
             contrast_down = int(np.percentile(low_res_arr[c][sample_mask], 0.1))
             contrast_up = int(np.percentile(low_res_arr[c][sample_mask], 99.9))
         else:

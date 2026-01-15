@@ -1,5 +1,7 @@
+import os
 import zarr
 import dask.array as da
+from dask.distributed import LocalCluster
 import logging
 from typing import Any, Union, Optional, Sequence, Mapping, Callable
 from skimage.measure import block_reduce
@@ -12,6 +14,30 @@ from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
+
+def _set_dask_cluster() -> LocalCluster:
+    """
+    Set up a dask cluster for distributed computing.
+    
+    Returns:
+        Dask cluster.
+    """
+
+    workers = os.environ.get("SLURM_CPUS_PER_TASK", None)
+    if workers is None:
+        workers = os.cpu_count()
+        if workers is None:
+            workers = 1
+    workers = int(workers)
+
+    cluster = LocalCluster(
+        n_workers=workers,
+        threads_per_worker=1,
+        processes=True,
+        dashboard_address=None,
+        silence_logs=logging.ERROR,
+    )
+    return cluster
 
 def build_pyramid(
     *,

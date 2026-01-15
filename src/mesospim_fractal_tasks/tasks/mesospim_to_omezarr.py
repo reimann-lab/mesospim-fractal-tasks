@@ -1,13 +1,19 @@
 """
 Convert mesoSPIM data to OME-NGFF zarr array.
 """
+import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
+os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+
 from pathlib import Path
 from typing import Optional, Callable, Any
 import json
 from importlib import resources
 import fractal_tasks_core
 from fractal_tasks_core.tasks.io_models import ChunkSizes
-#from fractal_tasks_core.pyramids import build_pyramid
 from fractal_tasks_core.ngff.specs import NgffImageMeta
 from fractal_tasks_core.roi import prepare_FOV_ROI_table, prepare_well_ROI_table
 from fractal_tasks_core.tables import write_table
@@ -15,11 +21,15 @@ import numpy as np
 import pandas as pd
 from pydantic import validate_call
 import zarr
+#import dask
+from dask.distributed import Client
 import dask.array as da
 import tifffile as tiff
 import h5py
 
-from mesospim_fractal_tasks.utils.zarr_utils import _determine_optimal_contrast, build_pyramid
+from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast, 
+                                                     build_pyramid, 
+                                                     _set_dask_cluster)
 from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
@@ -469,8 +479,7 @@ def convert_tiff(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes,
-    mem_fraction: float = 0.3
+    chunk_sizes: ChunkSizes
 ) -> None:
     """
     Convert tiff files that matches the basename in provided directory to zarr.
@@ -797,6 +806,8 @@ def mesospim_to_omezarr(
     logger.info(f"Start task: `MesoSPIM to OME-Zarr`. "
                 f"Zarr Directory set to: {zarr_dir}")
 
+    cluster = _set_dask_cluster()
+
     # Check if the zarr directory exists
     if not Path(zarr_dir).exists():
         raise FileNotFoundError(f"Zarr directory {zarr_dir} does not exist.")
@@ -853,18 +864,21 @@ def mesospim_to_omezarr(
     chunk_sizes.z = chunksize[0]
     chunk_sizes.y = chunksize[1]
     chunk_sizes.x = chunksize[2]
-    convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
+    
+    with Client(cluster) as client:
+        convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
 
-    # Build the pyramid
-    build_pyramid(
-        zarrurl=str(image_path),
-        overwrite=True,
-        num_levels=num_levels,
-        coarsening_xy=coarsening_factor,
-        chunksize=chunk_sizes.get_chunksize()
-    )
+        # Build the pyramid
+        build_pyramid(
+            zarrurl=str(image_path),
+            overwrite=True,
+            num_levels=num_levels,
+            coarsening_xy=coarsening_factor,
+            chunksize=chunk_sizes.get_chunksize()
+        )
 
     # Determine optimal contrast limits
+    #with dask.config.set(scheduler="synchronous"):
     contrast_limits = _determine_optimal_contrast(image_path, 
                                                   num_levels, 
                                                   segment_sample=True)
@@ -899,32 +913,8 @@ def mesospim_to_omezarr(
 
 if __name__ == "__main__":
     from fractal_task_tools.task_wrapper import run_fractal_task
-    from dask.distributed import Client, LocalCluster
-    import os
 
-    os.environ.setdefault("OMP_NUM_THREADS", "1")
-    os.environ.setdefault("MKL_NUM_THREADS", "1")
-    os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-    os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
-
-    workers = os.environ.get("SLURM_CPUS_PER_TASK", None)
-    if workers is None:
-        workers = os.cpu_count()
-        if workers is None:
-            workers = 1
-    workers = int(workers)
-
-
-    cluster = LocalCluster(
-        n_workers=workers,
-        threads_per_worker=1,
-        processes=True,
-        dashboard_address=None,
-        silence_logs=logging.ERROR,
-    )
-
-    with Client(cluster) as client:
-        run_fractal_task(
-            task_function=mesospim_to_omezarr, 
-            logger_name=logger.name,
-            )
+    run_fractal_task(
+        task_function=mesospim_to_omezarr, 
+        logger_name=logger.name,
+        )

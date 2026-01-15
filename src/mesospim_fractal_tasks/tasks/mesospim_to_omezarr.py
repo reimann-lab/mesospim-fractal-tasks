@@ -3,10 +3,13 @@ Convert mesoSPIM data to OME-NGFF zarr array.
 """
 import os
 
-os.environ.setdefault("OMP_NUM_THREADS", "1")
-os.environ.setdefault("MKL_NUM_THREADS", "1")
-os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
-os.environ.setdefault("NUMEXPR_NUM_THREADS", "1")
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+import numcodecs
+numcodecs.blosc.set_nthreads(1)
 
 from pathlib import Path
 from typing import Optional, Callable, Any
@@ -21,7 +24,6 @@ import numpy as np
 import pandas as pd
 from pydantic import validate_call
 import zarr
-#import dask
 from dask.distributed import Client
 import dask.array as da
 import tifffile as tiff
@@ -878,7 +880,6 @@ def mesospim_to_omezarr(
         )
 
     # Determine optimal contrast limits
-    #with dask.config.set(scheduler="synchronous"):
     contrast_limits = _determine_optimal_contrast(image_path, 
                                                   num_levels, 
                                                   segment_sample=True)

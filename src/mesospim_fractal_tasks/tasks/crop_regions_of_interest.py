@@ -1,6 +1,17 @@
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+import numcodecs
+numcodecs.blosc.set_nthreads(1)
+
 import logging
 from pathlib import Path
 import zarr
+from dask.distributed import Client
 import dask.array as da
 import pandas as pd
 import numpy as np
@@ -11,10 +22,11 @@ from pydantic import validate_call
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.roi import get_single_image_ROI, prepare_FOV_ROI_table
 from fractal_tasks_core.tables import write_table
-from fractal_tasks_core.pyramids import build_pyramid
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                     _update_omero_channels)
+                                                     _update_omero_channels,
+                                                     build_pyramid,
+                                                     _set_dask_cluster)
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +168,8 @@ def crop_regions_of_interest(
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Crop Region of Interest` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
+    
+    cluster = _set_dask_cluster()
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image.")
@@ -204,14 +218,15 @@ def crop_regions_of_interest(
             overwrite=True,
             dimension_separator="/"
     )
-    z_chunk = full_res_arr.chunksize[1]
-    for z in range(0, z_end-z_start, z_chunk):
-        region = (slice(None),
-                  slice(z, z+z_chunk),
-                  slice(None),
-                  slice(None))
-        crop[region].to_zarr(roi_arr, compute=True, region=region)
-    logger.info(f"ROI {roi_id} saved!")
+    with Client(cluster) as client:
+        z_chunk = full_res_arr.chunksize[1]
+        for z in range(0, z_end-z_start, z_chunk):
+            region = (slice(None),
+                    slice(z, z+z_chunk),
+                    slice(None),
+                    slice(None))
+            crop[region].to_zarr(roi_arr, compute=True, region=region)
+        logger.info(f"ROI {roi_id} saved!")
 
     # Copy NGFF metadata from the raw image to the roi image
     logger.info(f"Copying NGFF metadata from {zarr_path.name} to {roi_path.name}")
@@ -272,18 +287,22 @@ def crop_regions_of_interest(
         table_attrs={"type": "roi_table"},
     )
 
-    # Write pyramid of resolution
-    logger.info(f"Building pyramid of resolution for {roi_path.name}")
-    build_pyramid(
-        zarrurl=roi_path,
-        overwrite=True,
-        num_levels=init_args["num_levels"],
-        coarsening_xy=init_args["coarsening_xy"],
-        chunksize=roi_arr.chunks,
-    )
+    with Client(cluster) as client:
+        # Write pyramid of resolution
+        logger.info(f"Building pyramid of resolution for {roi_path.name}")
+        build_pyramid(
+            zarrurl=roi_path,
+            overwrite=True,
+            num_levels=init_args["num_levels"],
+            coarsening_xy=init_args["coarsening_xy"],
+            chunksize=roi_arr.chunks,
+        )
 
     # Re-compute optimal contrast limits for ROI
-    contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"])
+    if init_args["crop_or_roi"] == "crop":
+        contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"], segment_sample=True)
+    else:
+        contrast_limits = _determine_optimal_contrast(roi_path, init_args["num_levels"])
     
     _update_omero_channels(roi_path, {"window": contrast_limits})
     

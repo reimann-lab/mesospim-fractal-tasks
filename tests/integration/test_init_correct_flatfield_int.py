@@ -1,10 +1,10 @@
-from mesospim_fractal_tasks.tasks.init_correct_flatfield import (
+from mesospim_fractal_tasks.tasks.init_correct_flatfield_parallel import (
     init_correct_flatfield)
 import shutil
 from pathlib import Path
 import zarr
 
-MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield"
+MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield_parallel"
 
 def test_integration_creates_zarr_pyramid(
     tmp_dataset

@@ -2,14 +2,14 @@ import numpy as np
 import pytest
 from pathlib import Path
 
-from mesospim_fractal_tasks.tasks.correct_flatfield import (
+from mesospim_fractal_tasks.tasks.correct_flatfield_parallel import (
     correct_flatfield,
     correct,
     IlluminationModel,
     collect_fovs
 )
 
-MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield"
+MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield_parallel"
 
 def test_collect_fovs_with_fov_list(
     mock_flatfield_env

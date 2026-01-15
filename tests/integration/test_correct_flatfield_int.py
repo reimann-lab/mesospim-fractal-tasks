@@ -5,12 +5,12 @@ import anndata as ad
 import dask.array as da
 import zarr
 
-from mesospim_fractal_tasks.tasks.correct_flatfield import (
+from mesospim_fractal_tasks.tasks.correct_flatfield_parallel import (
     correct_flatfield,
     collect_fovs
 )
 
-MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield"
+MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield_parallel"
 
 def test_collect_fovs_default():
 

@@ -1,9 +1,9 @@
-from mesospim_fractal_tasks.tasks.init_correct_flatfield import (
+from mesospim_fractal_tasks.tasks.init_correct_flatfield_parallel import (
     init_correct_flatfield,
     group_by_channel)
 import shutil
 
-MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield"
+MODULE = "mesospim_fractal_tasks.tasks.init_correct_flatfield_parallel"
 
 def test_group_by_channel(
     mocker, 

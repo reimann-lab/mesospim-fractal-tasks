@@ -17,7 +17,10 @@ zarr_dir = "path/to/zarr/directory"
 num_levels = 2
 
 # e.g. name of the table holding the ROI crop coordinates                     
-roi_table_name = "roi_coords"                         
+roi_table_name = "roi_coords"
+
+# e.g. whether to crop main image or extract ROIs
+crop_or_roi = "roi"
 
 ###############################################################################
 

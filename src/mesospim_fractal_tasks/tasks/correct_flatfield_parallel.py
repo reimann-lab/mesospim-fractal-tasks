@@ -156,7 +156,7 @@ def compute_basicpy_models(
     illum_profiles = IlluminationModel()
     illum_profiles.flatfield = basic.flatfield
     illum_profiles.darkfield = basic.darkfield
-    illum_profiles.baseline = np.median(basic.baseline)
+    illum_profiles.baseline = np.median(basic.baseline) # type: ignore
     
     return illum_profiles
 
@@ -193,6 +193,7 @@ def collect_fovs(
     # Load corresponding resolution image
     image_arr = da.from_zarr(f"{zarr_url}/{resolution_level}")[channel_index]
     FOV_ROI_df = ad.read_zarr(f"{zarr_url}/tables/FOV_ROI_table").to_df()
+    FOV_ROI_df[["x_micrometer", "len_x_micrometer", "y_micrometer", "len_y_micrometer"]] = FOV_ROI_df[["x_micrometer", "len_x_micrometer", "y_micrometer", "len_y_micrometer"]].astype(float)
     z_size = image_arr.shape[0]
     
     if FOV_list is not None:
@@ -212,7 +213,7 @@ def collect_fovs(
     else:
         logger.info(f"Collecting {n_zplanes} random FOVs from full stack of FOVs...")
         n_FOVs = len(FOV_ROI_df.index)
-        FOV_list = range(n_FOVs)
+        FOV_list = range(n_FOVs) # type: ignore
     n_zplanes_per_FOV = max(-(-n_zplanes // n_FOVs), 1)
     if n_zplanes_per_FOV > z_size:
         n_zplanes_per_FOV = z_size
@@ -226,7 +227,7 @@ def collect_fovs(
 
     # Read FOV ROIs
     for i_FOV, _ in enumerate(FOV_ROI_df.index):
-        if i_FOV in FOV_list:
+        if i_FOV in FOV_list: # type: ignore
             logger.info(f"Collecting {n_zplanes_per_FOV} z planes from FOV stack "
                         f"{i_FOV}.")
             if z_levels is not None:
@@ -237,16 +238,15 @@ def collect_fovs(
                                                            max(n_zplanes_per_FOV, 1))])
             else:
                 z_idxs = np.random.randint(0, z_size, n_zplanes_per_FOV)
-            x_start, x_end = (round(FOV_ROI_df.loc[f"FOV_{i_FOV}", "x_micrometer"] / 
-                                    pixel_sizes_yx[1]), 
-                            round(FOV_ROI_df.loc[f"FOV_{i_FOV}", "len_x_micrometer"] /
+            x_start, x_end = (round(float(FOV_ROI_df.loc[f"FOV_{i_FOV}", "x_micrometer"]) /  # type: ignore
+                                    pixel_sizes_yx[1]),
+                            round(float(FOV_ROI_df.loc[f"FOV_{i_FOV}", "len_x_micrometer"]) / # type: ignore
                                     pixel_sizes_yx[1]))
             x_end = x_end + x_start
-            y_start, y_end = (round(FOV_ROI_df.loc[f"FOV_{i_FOV}", "y_micrometer"] /
+            y_start, y_end = (round(float(FOV_ROI_df.loc[f"FOV_{i_FOV}", "y_micrometer"]) / # type: ignore
                                     pixel_sizes_yx[0]), 
-                            round(FOV_ROI_df.loc[f"FOV_{i_FOV}", "len_y_micrometer"] /
+                            round(float(FOV_ROI_df.loc[f"FOV_{i_FOV}", "len_y_micrometer"]) / # type: ignore
                                     pixel_sizes_yx[0]))
-            y_end = y_end + y_start
             for idx in z_idxs:
                 if n_ROIs < n_zplanes:
                     n_ROIs += 1

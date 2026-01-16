@@ -29,7 +29,8 @@ from dask.distributed import Client
 import numpy as np
 import zarr
 from scipy.ndimage import zoom
-from skimage.filters import gaussian
+#from skimage.filters import gaussian
+from dask_image import ndfilters
 
 from mesospim_fractal_tasks.utils.models import (BaSiCPyModelParams, IlluminationModel)
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
@@ -48,7 +49,7 @@ from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 logger = logging.getLogger(__name__)
 
 def compute_baseline(
-    empty_tiles: np.ndarray,
+    empty_tiles: da.Array,
     flatfield: np.ndarray,
     percentile: float = 1
 ) -> float:
@@ -65,10 +66,10 @@ def compute_baseline(
     dtype_max = np.iinfo(empty_tiles.dtype).max
     flatfield = np.clip(flatfield, 0, dtype_max)
     corrected_tiles = empty_tiles / (flatfield + 1e-6)
-    return round(np.percentile(corrected_tiles, percentile))
+    return round(da.percentile(corrected_tiles[:,::4,::4].flatten(), percentile).compute())
 
 def compute_flatfield(
-    empty_tiles: np.ndarray,
+    empty_tiles: da.Array,
     smooth_sigma: float = 1
 ) -> np.ndarray:
     """
@@ -81,17 +82,17 @@ def compute_flatfield(
     Returns:
         np.ndarray: Flatfield profile.
     """
-    flat_raw = np.median(empty_tiles.astype(np.float32), axis=0)
+    flat_raw = (da.median(empty_tiles, axis=0)).astype(np.float32)
 
     # Get low-pass illumination field
-    flat_smooth = gaussian(flat_raw, sigma=smooth_sigma, preserve_range=True)
+    flat_smooth = ndfilters.gaussian_filter(flat_raw, sigma=smooth_sigma).astype(np.float32)
 
     # Normalize to mean 1
-    flat_norm = flat_smooth / np.mean(flat_smooth)
-    return flat_norm
+    flat_norm = flat_smooth / da.mean(flat_smooth)
+    return flat_norm.compute()
 
 def compute_empty_fov_models(
-    FOV_data: np.ndarray,
+    FOV_data: da.Array,
 ) -> IlluminationModel:
     """
     Calculates illumination correction profiles based on a random sample
@@ -114,7 +115,7 @@ def compute_empty_fov_models(
     return illumination_profiles
 
 def compute_basicpy_models(
-    FOV_data: np.ndarray,
+    FOV_data: da.Array,
     advanced_basicpy_model_params: BaSiCPyModelParams,
 ) -> IlluminationModel:
     """
@@ -158,10 +159,10 @@ def compute_basicpy_models(
 
     if np.shape(FOV_data)[0] == 1:
         logger.info(f"Stack of ROIs shape is {FOV_data[0, :, :, :].shape}.")
-        basic.fit(FOV_data[0, :, :, :])
+        basic.fit(FOV_data[0, :, :, :].copmute())
     else:
         logger.info(f"Stack of ROIs shape is {np.squeeze(FOV_data).shape}.")
-        basic.fit(np.squeeze(FOV_data))
+        basic.fit(np.squeeze(FOV_data).compute())
 
     logger.info(
         f"BaSiCPy model fitted!")
@@ -181,7 +182,7 @@ def collect_fovs(
     pixel_sizes_yx: tuple[float, float],
     n_zplanes: int,
     z_levels: Optional[tuple[int, int]],
-) -> np.ndarray:
+) -> da.Array:
     """
     Collect FOVs.
 
@@ -266,7 +267,7 @@ def collect_fovs(
                     region = (slice(idx, idx+1), 
                               slice(y_start, y_end), 
                               slice(x_start, x_end))
-                    ROI_data.append(image_arr[region].compute())
+                    ROI_data.append(image_arr[region])
                 else: 
                     break
             logger.info(f"Total number of z planes collected: {n_ROIs}/{n_zplanes}")
@@ -275,7 +276,7 @@ def collect_fovs(
                             " Stop collecting z planes from FOV stacks.")
                 break
                 
-    ROI_data = np.concatenate(ROI_data, axis=0)
+    ROI_data = da.concatenate(ROI_data, axis=0)
     return ROI_data
 
 def correct(
@@ -488,20 +489,16 @@ def correct_flatfield(
         n_zplanes: Number of z planes to use to calculate BaSiCPy model (Default: 200).
         advanced_basicpy_model_params: Advanced parameters for the BaSiC model. 
     """
+    # Set dask cluster
+    cluster = _set_dask_cluster()
+
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Flatfield Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
     
-    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
-    if not new_zarr_path.exists():
-        logger.error(f"Error! {new_zarr_path} does not exist.")
-        raise FileNotFoundError
-    
-    # Set dask cluster
-    cluster = _set_dask_cluster()
-    
     # Create zarr pyramid
     create_zarr_pyramid(zarr_path)
+    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     
     # Map channel name to channel index
     channel_dict = {}
@@ -562,9 +559,10 @@ def correct_flatfield(
         )
         if models_folder is None:
             if FOV_list is not None:
-                illum_profiles = compute_empty_fov_models(
-                    FOV_data=FOV_data,
-                )
+                with Client(cluster) as client:
+                    illum_profiles = compute_empty_fov_models(
+                        FOV_data=FOV_data,
+                    )
             else:
                 illum_profiles = compute_basicpy_models(
                     FOV_data=FOV_data,
@@ -626,9 +624,8 @@ def correct_flatfield(
 
                 # Write to disk
                 logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-                #new_image_arr[region] = corrected_fov # type: ignore
                 corrected_fov.to_zarr( # type: ignore
-                    url=zarr.open_array(new_image_arr),
+                    url=new_image_arr,
                     region=region,
                     compute=True,
                 )

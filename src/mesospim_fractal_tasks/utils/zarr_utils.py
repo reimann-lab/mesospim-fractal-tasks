@@ -15,7 +15,8 @@ from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
 
-def _set_dask_cluster() -> LocalCluster:
+def _set_dask_cluster(
+) -> LocalCluster:
     """
     Set up a dask cluster for distributed computing.
     

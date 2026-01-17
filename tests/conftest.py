@@ -75,7 +75,7 @@ def mock_mesospim_env(mocker):
 @pytest.fixture
 def mock_init_correct_flatfield_env(mocker):
 
-    module = "mesospim_fractal_tasks.tasks.init_correct_flatfield_parallel"
+    module = "mesospim_fractal_tasks.tasks.init_correct_flatfield"
     
     mocks = {}
     df = pd.DataFrame({
@@ -109,7 +109,7 @@ def mock_flatfield_env(
     tmp_path
 ):
 
-    module = "mesospim_fractal_tasks.tasks.correct_flatfield_parallel"
+    module = "mesospim_fractal_tasks.tasks.correct_flatfield"
 
     new_zarr = tmp_path / "fake_flatfield_corr"
     new_zarr.mkdir()

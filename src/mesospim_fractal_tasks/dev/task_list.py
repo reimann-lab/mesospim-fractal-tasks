@@ -19,21 +19,11 @@ TASK_LIST = [
         tags=["mesoSPIM", "Converter"],
         modality="lightsheet"
     ),
-    ParallelTask(
+    CompoundTask(
         name="Perform Flatfield Correction",
         input_types=dict(flatfield_corrected=False),
-        executable="tasks/correct_flatfield_parallel.py",
-        output_types=dict(flatfield_corrected=True),
-        meta={"cpus_per_task": 4, "mem": 16000},
-        tags=["BaSiCPy", "Illumination", "Correction", "Flatfield", "Darkfield"],
-        category="Image Processing",
-        modality="lightsheet"
-    ),
-    CompoundTask(
-        name="Perform Flatfield Correction (Parallel)",
-        input_types=dict(flatfield_corrected=False),
-        executable_init="tasks/init_correct_flatfield_parallel.py",
-        executable="tasks/correct_flatfield_parallel.py",
+        executable_init="tasks/init_correct_flatfield.py",
+        executable="tasks/correct_flatfield.py",
         output_types=dict(flatfield_corrected=True),
         meta={"cpus_per_task": 1, "mem": 16000},
         tags=["BaSiCPy", "Illumination", "Correction", "Flatfield", "Darkfield"],

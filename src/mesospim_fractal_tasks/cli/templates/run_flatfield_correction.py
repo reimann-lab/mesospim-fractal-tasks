@@ -1,4 +1,4 @@
-from mesospim_fractal_tasks.tasks.correct_flatfield import correct_flatfield
+from mesospim_fractal_tasks.tasks.correct_flatfield_dask import correct_flatfield
 from mesospim_fractal_tasks.utils.models import BaSiCPyModelParams
 
 ###############################################################################

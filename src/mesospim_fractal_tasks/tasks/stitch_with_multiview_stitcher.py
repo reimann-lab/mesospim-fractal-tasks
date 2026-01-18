@@ -147,7 +147,7 @@ def stitch_with_multiview_stitcher(
             logger.error(
             f"Error. {channel} has no index in that OME-Zarr image."
         )
-        raise ValueError
+            raise ValueError
     else:
         logger.error(
             f"Error. {channel} is not available in that OME-Zarr image."
@@ -203,7 +203,7 @@ def stitch_with_multiview_stitcher(
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
         msims_fusion = msims_reg
-        
+    else:
         # Load the full-resolution image for fusion
         xim_well = get_sim_from_multiscales(zarr_path, 
                                             resolution=0, 
@@ -245,6 +245,9 @@ def stitch_with_multiview_stitcher(
             dim: cs for dim, cs in zip(sdims, fusion_chunksize)
         }
 
+    batch_options = {"zarr_array_creation_kwargs": {"dimension_separator": "/"},
+                     "max_workers": max_workers,
+                     "batch_func": parallel_block_processing}
     if max_workers > n_cpus:
         max_workers = n_cpus
         logger.warning("Number of processes is greater than available number of workers"
@@ -261,10 +264,7 @@ def stitch_with_multiview_stitcher(
         output_chunksize=fusion_chunksize_dict,
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
         output_zarr_url=output_zarr_final,
-        batch_options={"zarr_array_creation_kwargs": {"dimension_separator": "/"},
-                       "max_workers": max_workers,
-                       "batch_func": parallel_block_processing,
-                    },
+        batch_options=batch_options
     )
 
     # Open the zarr group (read/write)

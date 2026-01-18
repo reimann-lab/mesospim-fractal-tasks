@@ -88,6 +88,8 @@ def parallel_block_processing(
     it = iter(all_block_ids)
     in_flight = set()
 
+    milestones = np.linspace(0, total, num=20, dtype=int)
+
     with ProcessPoolExecutor(
         max_workers=max_workers,
         initializer=_init_worker,
@@ -109,8 +111,8 @@ def parallel_block_processing(
                 _ = fut.result()
                 n_completed += 1
             
-            if n_completed % 100 == 0:
-                logger.info(f"{n_completed/total:.0f}% completed!") 
+            if n_completed in milestones:
+                logger.info(f"{((n_completed/total)*100):.0f}% completed!") 
 
             # submit new tasks to keep the pipeline full (bounded)
             for _ in range(len(done)):

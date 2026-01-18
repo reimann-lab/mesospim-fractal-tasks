@@ -9,6 +9,16 @@
 # Joel Lüthi <joel.luethi@uzh.ch>
 # Adrian Tschan <atschan@apricotx.com>
 
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+import numcodecs
+numcodecs.blosc.set_nthreads(1)
+
 import logging
 from pathlib import Path
 from typing import Dict, Any, Optional

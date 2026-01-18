@@ -26,13 +26,12 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
                                                      _update_omero_channels,
                                                      _set_dask_cluster,
                                                      build_pyramid_per_channel,
+                                                     correct_per_channel,
                                                      create_zarr_pyramid)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
-from fractal_tasks_core.roi import (
-    convert_ROI_table_to_indices,
-)
+from fractal_tasks_core.roi import convert_ROI_table_to_indices
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
@@ -239,52 +238,15 @@ def compute_global_normalisation(
 
     return gain_map
 
-def correct_per_channel(
-    *,
-    zarr_path: Path,
-    new_zarr_path: Path,
-    channel_name: str,
-    channel_index: int,
-    full_res_pxl_sizes_zyx: tuple[float, float, float, float],
+def correct_FOV(
+    FOV_dask: da.Array,
+    i_FOV: int,
     gain_factors: dict[str, float],
     z_profile: da.Array,
-) -> None:
-
-    image_array = da.from_zarr(zarr_path / "0")
-
-    # Get FOVs coordinates
-    FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
-    indices = convert_ROI_table_to_indices(
-        FOV_ROI_table,
-        level=0,
-        coarsening_xy=2,
-        cols_xyz_pos= [
-        "x_micrometer",
-        "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-    )
-
-    logger.info(f"Starting illumination correction for {channel_name}...")
-    for i_ROI, idxs_ROI in enumerate(indices):
-        s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
-        region = (
-            slice(channel_index, channel_index + 1),
-            slice(s_z, e_z),
-            slice(s_y, e_y),
-            slice(s_x, e_x),
-        )
-        gain = gain_factors[f"ROI_{i_ROI}"]
-        corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
-                                        0, 65535).astype(np.uint16)
-        
-        # Write to disk
-        logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
-        corrected_FOV.to_zarr(
-            url=zarr.open_array(new_zarr_path / "0"),
-            region=region,
-            compute=True,
-        )
+) -> da.Array:
+    gain = gain_factors[f"ROI_{i_FOV}"]
+    return da.clip((FOV_dask * gain * z_profile, 
+                    0, 65535)).astype(np.uint16)
 
 @validate_call
 def correct_illumination(
@@ -355,8 +317,9 @@ def correct_illumination(
                 channel_name=channel_name,
                 channel_index=channel_idx,
                 full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-                gain_factors=gain_factors[channel_name],
-                z_profile=z_profile[channel_name],
+                correct_func=correct_FOV,
+                correct_func_kwargs={"gain_factors": gain_factors[channel_name],
+                                     "z_profile": z_profile[channel_name]},
                 pure=False,
                 retries=1
             )

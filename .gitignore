@@ -114,3 +114,4 @@ ENV/
 # Local data
 Data
 src/mesospim_fractal_tasks/run_*
+run_*

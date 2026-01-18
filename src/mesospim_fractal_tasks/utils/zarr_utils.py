@@ -40,6 +40,72 @@ def _set_dask_cluster(
     )
     return cluster
 
+def create_zarr_pyramid(
+    zarr_path: Path,
+    new_zarr_name: str,
+    num_levels: int = None,
+    coarsening_xy: int = None,
+    chunksize: tuple[int, int, int, int] = None,
+) -> None:
+    """
+    Create a pyramid of zarr array on disk for the new image.
+
+    Parameters:
+        zarr_path (Path): Path to the original OME-Zarr image to be processed.
+    """
+    image_meta = load_NgffImageMeta(str(zarr_path))
+    if num_levels is None:
+        num_levels = image_meta.num_levels
+    if coarsening_xy is None:
+        coarsening_xy = image_meta.coarsening_xy
+        if coarsening_xy is None:
+            coarsening_xy = 2
+        
+    if chunksize is None:
+        chunksize = raw_array.chunks
+
+    raw_array = zarr.open_array(zarr_path / "0")
+    for level in range(num_levels):
+        shape = (raw_array.shape[0], raw_array.shape[1],
+                 raw_array.shape[2] // coarsening_xy**level, 
+                 raw_array.shape[3] // coarsening_xy**level)
+        _ = zarr.create(
+            shape=shape,
+            chunks=raw_array.chunks,
+            store=zarr.storage.FSStore(Path(zarr_path.parent,
+                                            new_zarr_name,
+                                            str(level))),
+            dtype=raw_array.dtype,
+            overwrite=True,
+            dimension_separator="/",
+        )
+
+def build_pyramid_per_channel(
+    new_zarr_path: Path,
+    channel_index: int,
+    num_levels: int,
+    coarsening_xy: int,
+    chunksize: tuple[int, int, int, int],
+) -> None:
+    
+    logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
+    for level in range(0, num_levels-1):
+        up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
+        down_channel_arr = da.coarsen(
+            reduction=np.mean,
+            x=up_channel_arr,
+            axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
+            trim_excess=True)
+        region = (slice(channel_index, channel_index+1),
+                slice(None),
+                slice(None),
+                slice(None))
+        down_channel_arr = down_channel_arr.rechunk(chunksize)
+        down_channel_arr.to_zarr(
+            url=zarr.open(str(new_zarr_path / str(level+1))), 
+            region=region, 
+            overwrite=True)
+
 def build_pyramid(
     *,
     zarrurl: Union[str, Path],

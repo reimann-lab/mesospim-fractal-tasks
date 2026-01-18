@@ -1,3 +1,13 @@
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+
+import numcodecs
+numcodecs.blosc.set_nthreads(1)
+
 from typing import  Any
 from pydantic import validate_call
 import numpy as np
@@ -14,7 +24,9 @@ from scipy.ndimage import gaussian_filter1d
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
-                                                     _set_dask_cluster)
+                                                     _set_dask_cluster,
+                                                     build_pyramid_per_channel,
+                                                     create_zarr_pyramid)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
@@ -89,9 +101,15 @@ def gain_residuals(
     return np.array(residuals)
 
 @delayed
-def _gain_from_stats(mean1: float, mean2: float, cnt1: int, cnt2: int, thresh: float) -> float:
+def _gain_from_stats(
+    mean1: float, 
+    mean2: float, 
+    cnt1: int, 
+    cnt2: int, 
+    thresh: float
+) -> float:
     """
-    Decide gain from overlap statistics. Delayed so we can batch all pairs in one compute.
+    Decide gain from overlap statistics.
     """
     if (cnt1 < thresh) or (cnt2 < thresh):
         return 1.0
@@ -221,36 +239,6 @@ def compute_global_normalisation(
 
     return gain_map
 
-def create_zarr_pyramid(
-    zarr_path: Path
-) -> None:
-    """
-    Create a pyramid of zarr array on disk for the new image.
-
-    Parameters:
-        zarr_path (Path): Path to the original OME-Zarr image to be processed.
-    """
-    image_meta = load_NgffImageMeta(str(zarr_path))
-    num_level = image_meta.num_levels
-    coarsening_xy = image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
-    raw_array = zarr.open_array(zarr_path / "0")
-    for level in range(num_level):
-        shape = (raw_array.shape[0], raw_array.shape[1],
-                 raw_array.shape[2] // 2**level, 
-                 raw_array.shape[3] // 2**level)
-        _ = zarr.create(
-            shape=shape,
-            chunks=raw_array.chunks,
-            store=zarr.storage.FSStore(Path(zarr_path.parent,
-                                            zarr_path.name + "_illum_corr",
-                                            str(level))),
-            dtype=raw_array.dtype,
-            overwrite=True,
-            dimension_separator="/",
-        )
-
 def correct_per_channel(
     *,
     zarr_path: Path,
@@ -298,33 +286,6 @@ def correct_per_channel(
             compute=True,
         )
 
-def build_pyramid_per_channel(
-    new_zarr_path: Path,
-    channel_index: int,
-    num_levels: int,
-    coarsening_xy: int,
-    chunksize: tuple[int, int, int, int],
-) -> None:
-    
-    logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
-    for level in range(0, num_levels-1):
-        up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-        down_channel_arr = da.coarsen(
-            reduction=np.mean,
-            x=up_channel_arr,
-            axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-            trim_excess=True)
-        region = (slice(channel_index, channel_index+1),
-                slice(None),
-                slice(None),
-                slice(None))
-        down_channel_arr = down_channel_arr.rechunk(chunksize)
-        down_channel_arr.to_zarr(
-            url=zarr.open(str(new_zarr_path / str(level+1))), 
-            region=region, 
-            overwrite=True)
-
-
 @validate_call
 def correct_illumination(
     *,
@@ -341,7 +302,7 @@ def correct_illumination(
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
     
     # Create zarr pyramid
-    create_zarr_pyramid(zarr_path)
+    create_zarr_pyramid(zarr_path, new_zarr_name = new_zarr_path.name)
     
     # Map channel name to channel index
     channel_dict = {}
@@ -436,7 +397,7 @@ def correct_illumination(
         )
     )
     fractal_tasks["correct_illumination"] = task_dict
-    source_attrs["fractal_tasks"] = fractal_tasks
+    source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
     new_group = zarr.open_group(str(new_zarr_path), mode="a")
     new_group.attrs.put(source_attrs)
 

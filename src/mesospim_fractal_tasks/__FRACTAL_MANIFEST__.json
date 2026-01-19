@@ -12,7 +12,7 @@
       "type": "converter_non_parallel",
       "executable_non_parallel": "tasks/mesospim_to_omezarr.py",
       "meta_non_parallel": {
-        "cpus_per_task": 1,
+        "cpus_per_task": 2,
         "mem": 8000,
         "time": "2-00:00:00"
       },
@@ -401,7 +401,7 @@
       "executable_parallel": "tasks/correct_illumination.py",
       "meta_parallel": {
         "cpus_per_task": 2,
-        "mem": 4000
+        "mem": 8000
       },
       "args_schema_non_parallel": {
         "additionalProperties": false,
@@ -468,7 +468,7 @@
       "executable_non_parallel": "tasks/init_crop_regions_of_interest.py",
       "executable_parallel": "tasks/crop_regions_of_interest.py",
       "meta_parallel": {
-        "cpus_per_task": 1,
+        "cpus_per_task": 2,
         "mem": 8000
       },
       "args_schema_non_parallel": {
@@ -558,9 +558,8 @@
       "type": "parallel",
       "executable_parallel": "tasks/stitch_with_multiview_stitcher.py",
       "meta_parallel": {
-        "cpus_per_task": 4,
-        "mem": 32000,
-        "time": "3-00:00:00"
+        "cpus_per_task": 8,
+        "mem": 20000
       },
       "args_schema_parallel": {
         "$defs": {

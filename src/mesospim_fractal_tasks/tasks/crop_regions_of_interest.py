@@ -25,8 +25,8 @@ from fractal_tasks_core.tables import write_table
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
-                                                     build_pyramid,
-                                                     _set_dask_cluster)
+                                                     build_pyramid)
+from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 logger = logging.getLogger(__name__)
 

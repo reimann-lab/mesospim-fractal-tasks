@@ -32,8 +32,6 @@ from skimage.filters import gaussian
 
 from mesospim_fractal_tasks.utils.models import (BaSiCPyModelParams, IlluminationModel)
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
-from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                     _update_omero_channels)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
@@ -570,7 +568,6 @@ def correct_flatfield(
         # Copy ROI tables from the old zarr_url
         _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
 
-        #with FileLock(Path(new_zarr_path, ".zattrs.lock")):
         # Copy NGFF metadata from the old zarr_url to the new zarr
         logger.info(f"Copying NGFF metadata from {zarr_path.name}"
                     f" to {new_zarr_path.name}.")

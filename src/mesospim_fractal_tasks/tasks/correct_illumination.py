@@ -10,8 +10,6 @@ import logging
 from filelock import FileLock
 from scipy.ndimage import gaussian_filter1d
 
-from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                     _update_omero_channels)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.roi import (

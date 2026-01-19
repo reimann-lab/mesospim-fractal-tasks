@@ -14,7 +14,7 @@ TASK_LIST = [
     ConverterNonParallelTask(
         name="Convert mesoSPIM dataset to OME-ZARR",
         executable="tasks/mesospim_to_omezarr.py",
-        meta={"cpus_per_task": 1, "mem": 8000, "time": "2-00:00:00"},
+        meta={"cpus_per_task": 2, "mem": 8000, "time": "2-00:00:00"},
         category="Conversion",
         tags=["mesoSPIM", "Converter"],
         modality="lightsheet"
@@ -36,7 +36,7 @@ TASK_LIST = [
         executable_init="tasks/init_correct_illumination.py",
         executable="tasks/correct_illumination.py",
         output_types=dict(illumination_corrected=True),
-        meta={"cpus_per_task": 2, "mem": 4000},
+        meta={"cpus_per_task": 2, "mem": 8000},
         tags=["BaSiCPy", "Illumination", "Correction", "Global optimization",
               "Uneven illumination", "Z-correction"],
         category="Image Processing",
@@ -46,7 +46,7 @@ TASK_LIST = [
         name="Crop Regions of Interest",
         executable_init="tasks/init_crop_regions_of_interest.py",
         executable="tasks/crop_regions_of_interest.py",
-        meta={"cpus_per_task": 1, "mem": 8000},
+        meta={"cpus_per_task": 2, "mem": 8000},
         tags=["ROI", "Cropping"],
         modality="lightsheet",
         category="Image Formatting",
@@ -56,7 +56,7 @@ TASK_LIST = [
         input_types=dict(stitched=False),
         executable="tasks/stitch_with_multiview_stitcher.py",
         output_types=dict(stitched=True),
-        meta={"cpus_per_task": 4, "mem": 32000, "time": "3-00:00:00"},
+        meta={"cpus_per_task": 8, "mem": 20000},
         tags=["Stitching", "Multitile", "Multiview Stitcher"],
         category="Image Processing",
         modality="lightsheet"

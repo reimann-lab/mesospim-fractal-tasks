@@ -184,17 +184,17 @@ def crop_regions_of_interest(
     coords = init_args["roi_coords"]
     roi_id = init_args["roi_id"]
     z_start, z_end = check_binary_compatibility(max(coords['z_start_um'], 0),
-                                                coords['z_end_um'],
+                                                coords['z_end_um'] + scale[0],
                                                 full_shape[1],
                                                 scale[0], 
                                                 power=0)
     y_start, y_end = check_binary_compatibility(max(coords['y_start_um'], 0),
-                                                coords['y_end_um'], 
+                                                coords['y_end_um'] + scale[1], 
                                                 full_shape[2],
                                                 scale[1],
                                                 power=init_args["num_levels"])
     x_start, x_end = check_binary_compatibility(max(coords['x_start_um'], 0),
-                                                coords['x_end_um'],
+                                                coords['x_end_um'] + scale[2],
                                                 full_shape[3], 
                                                 scale[2],
                                                 power=init_args["num_levels"])

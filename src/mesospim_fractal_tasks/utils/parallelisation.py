@@ -49,6 +49,7 @@ def correct_per_channel(
 ) -> None:
 
     image_array = da.from_zarr(zarr_path / "0")
+    new_image_array = zarr.open_array(new_zarr_path / "0")
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
@@ -80,7 +81,7 @@ def correct_per_channel(
         # Write to disk
         logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
         corrected_FOV.to_zarr(
-            url=zarr.open_array(new_zarr_path / "0"),
+            url=new_image_array,
             region=region,
             compute=True,
         )

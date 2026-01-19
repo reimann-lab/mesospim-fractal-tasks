@@ -22,12 +22,14 @@ from pathlib import Path
 import logging
 from scipy.ndimage import gaussian_filter1d
 
-from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                     _update_omero_channels,
-                                                     _set_dask_cluster,
-                                                     build_pyramid_per_channel,
-                                                     correct_per_channel,
-                                                     create_zarr_pyramid)
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    _determine_optimal_contrast,
+    _update_omero_channels,
+    create_zarr_pyramid)
+from mesospim_fractal_tasks.utils.parallelisation import (
+    _set_dask_cluster,
+    build_pyramid_per_channel,
+    correct_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
@@ -245,8 +247,8 @@ def correct_FOV(
     z_profile: da.Array,
 ) -> da.Array:
     gain = gain_factors[f"ROI_{i_FOV}"]
-    return da.clip((FOV_dask * gain * z_profile, 
-                    0, 65535)).astype(np.uint16)
+    return da.clip(FOV_dask * gain * z_profile, 
+                    0, 65535).astype(np.uint16)
 
 @validate_call
 def correct_illumination(

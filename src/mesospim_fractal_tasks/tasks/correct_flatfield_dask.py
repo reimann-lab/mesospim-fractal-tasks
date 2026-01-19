@@ -35,17 +35,14 @@ from mesospim_fractal_tasks.utils.models import (BaSiCPyModelParams, Illuminatio
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
-                                                     _set_dask_cluster,
-                                                     correct_per_channel,
-                                                     build_pyramid_per_channel,
                                                      create_zarr_pyramid)
+from mesospim_fractal_tasks.utils.parallelisation import (_set_dask_cluster,
+                                                          correct_per_channel,
+                                                          build_pyramid_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
 from fractal_tasks_core.ngff import load_NgffImageMeta
-from fractal_tasks_core.roi import (
-    convert_ROI_table_to_indices,
-)
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
 logger = logging.getLogger(__name__)
@@ -68,7 +65,7 @@ def compute_baseline(
     dtype_max = np.iinfo(empty_tiles.dtype).max
     flatfield = np.clip(flatfield, 0, dtype_max)
     corrected_tiles = empty_tiles / (flatfield + 1e-6)
-    return round(da.percentile(corrected_tiles[:,::4,::4].flatten(), percentile).compute())
+    return float(np.round(da.percentile(corrected_tiles[:,::4,::4].flatten(), percentile).compute()))
 
 def compute_flatfield(
     empty_tiles: da.Array,
@@ -565,6 +562,7 @@ def correct_flatfield(
     with Client(cluster) as client:
         futures = []
         for channel_name, channel_idx in channel_dict.items():
+            illum_prof_f = client.scatter(illum_profiles[channel_name], broadcast=False)
             fut = client.submit(
                 correct_per_channel,
                 zarr_path=zarr_path,
@@ -574,7 +572,7 @@ def correct_flatfield(
                 full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
                 correct_func=correct_FOV,
                 correct_func_kwargs={
-                    "illum_profiles": illum_profiles[channel_name],
+                    "illum_profiles": illum_prof_f,
                 },
                 pure=False,
                 retries=1

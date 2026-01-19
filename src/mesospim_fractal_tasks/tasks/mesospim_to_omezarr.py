@@ -30,8 +30,8 @@ import tifffile as tiff
 import h5py
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast, 
-                                                     build_pyramid, 
-                                                     _set_dask_cluster)
+                                                     build_pyramid)
+from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 

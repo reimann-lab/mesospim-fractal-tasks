@@ -41,6 +41,7 @@ from mesospim_fractal_tasks.utils.parallelisation import (_set_dask_cluster,
                                                           build_pyramid_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
+from fractal_tasks_core.roi import convert_ROI_table_to_indices
 from fractal_tasks_core.channels import get_omero_channel_list
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
@@ -92,6 +93,7 @@ def compute_flatfield(
 
 def compute_empty_fov_models(
     FOV_data: da.Array,
+    channel_label: str,
 ) -> IlluminationModel:
     """
     Calculates illumination correction profiles based on a random sample
@@ -104,18 +106,22 @@ def compute_empty_fov_models(
         illumination_profiles: IlluminationModel instance with the illumination 
             correction profiles.
     """
-    logger.info(f"Start fitting illumination profile model using empty FOVs...")
+    logger.info(f"Start fitting illumination profile model using empty FOVs "
+                f"for channel {channel_label}...")
     
     illumination_profiles = IlluminationModel()
     illumination_profiles.flatfield = compute_flatfield(FOV_data)
     illumination_profiles.baseline = compute_baseline(
         FOV_data, flatfield=illumination_profiles.flatfield)
     
+    logger.info(f"Illumination profile model fitted "
+                f"for channel {channel_label}...")
     return illumination_profiles
 
 def compute_basicpy_models(
     FOV_data: da.Array,
     advanced_basicpy_model_params: BaSiCPyModelParams,
+    channel_label: str,
 ) -> IlluminationModel:
     """
     Calculates illumination correction profiles based on a provided sample of FOVs.
@@ -130,7 +136,7 @@ def compute_basicpy_models(
     """
 
     # calculate illumination correction profile
-    logger.info(f"Start fitting BaSiCPy illumination model...")
+    logger.info(f"Start fitting BaSiCPy illumination model for channel {channel_label}...")
     basic = BaSiC(
         autosegment=advanced_basicpy_model_params.autosegment,
         autosegment_margin=advanced_basicpy_model_params.autosegment_margin,
@@ -164,7 +170,7 @@ def compute_basicpy_models(
         basic.fit(np.squeeze(FOV_data).compute())
 
     logger.info(
-        f"BaSiCPy model fitted!")
+        f"BaSiCPy model fitted for channel {channel_label}!")
     
     illum_profiles = IlluminationModel()
     illum_profiles.flatfield = basic.flatfield
@@ -312,26 +318,12 @@ def correct_FOV(
     dtype_max = np.iinfo(dtype).max
     img_stack = FOV_dask.astype(np.float32)
 
-    # Resampling flatfield and darkfield if necessary
-    if illum_profiles.flatfield.shape[-2:] != img_stack.shape[-2:]:
-        logger.warning(
-            f"Flatfield correction matrix shape does not match image shape in"
-            f" x and y. Image YX shape: {img_stack[-2:].shape}\n"
-            f"Flatfield shape: {illum_profiles.flatfield.shape}. Resampling ...")
-        illum_profiles.flatfield = resample_to_shape(illum_profiles.flatfield, 
-                                                         img_stack.shape[-2:])
-        illum_profiles.flatfield = np.clip(illum_profiles.flatfield, 0, dtype_max)
+    if illum_profiles.flatfield is None:
+        logger.error("Flatfield correction matrix not found.")
+        raise ValueError
     
     # Apply the correction matrices
     if illum_profiles.darkfield is not None:
-        if illum_profiles.darkfield.shape[-2:] != img_stack.shape[-2:]:
-            logger.warning(
-                "Darkfield correction matrix shape does not match image shape"
-                f" in x and y. Image YX shape: {img_stack[2:].shape}\n"
-                f"Darkfield shape: {illum_profiles.darkfield.shape}. Resampling ...")
-            illum_profiles.darkfield = resample_to_shape(illum_profiles.darkfield,
-                                                         img_stack.shape[-2:])
-
         logger.info("Applying darkfield and flatfield correction.")
         img_stack = ((img_stack - illum_profiles.darkfield) / 
                      (illum_profiles.flatfield + 1e-6))
@@ -353,22 +345,25 @@ def correct_FOV(
     return new_img_stack.astype(dtype)
 
 def resample_to_shape(
-    img, 
-    output_shape, 
-    order=3, 
-    mode='constant',
-    cval=0.0, 
-    prefilter=True
-):
+    img: np.ndarray,
+    output_shape: tuple[int, int],
+    order: int = 3, 
+    mode: str = 'constant',
+    cval: float = 0.0,
+    prefilter: bool = True
+) -> np.ndarray:
     """
     Function resamples image to the desired shape.
 
     Typically used to up or downscale a pyramid image by
     a potency of 2 (e.g. 0.5, 1, 2 etc.)
     """
+    dtype = img.dtype
+    dtype_max = np.iinfo(dtype).max
     zoom_values = [o / i for i, o in zip(img.shape, output_shape)]
-    return zoom(img, zoom_values, order=order, mode=mode, cval=cval,
+    resampled = zoom(img, zoom_values, order=order, mode=mode, cval=cval,
                 prefilter=prefilter)
+    return np.clip(resampled, 0, dtype_max)
 
 def get_non_default_params(
     model_instance: BaSiCPyModelParams
@@ -502,6 +497,20 @@ def correct_flatfield(
     # Lazily load highest-res level from original zarr array
     image_arr = da.from_zarr(Path(zarr_path, "0"))
 
+    # Get FOV shape
+    FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
+    indices = convert_ROI_table_to_indices(
+        FOV_ROI_table,
+        level=0,
+        coarsening_xy=2,
+        cols_xyz_pos= [
+        "x_micrometer",
+        "y_micrometer",
+        "z_micrometer"],
+        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+    )
+    FOV_shape = (indices[0][-3], indices[0][-1])
+
     # Iterate over channels
     illum_profiles = {}
     for channel in channel_dict.keys():
@@ -520,11 +529,13 @@ def correct_flatfield(
                 with Client(cluster) as client:
                     illum_profiles[channel] = compute_empty_fov_models(
                         FOV_data=FOV_data,
+                        channel_label=channel,
                     )
             else:
                 illum_profiles[channel] = compute_basicpy_models(
                     FOV_data=FOV_data,
                     advanced_basicpy_model_params=advanced_basicpy_model_params,
+                    channel_label=channel,
                 )
 
             if save_models:
@@ -558,6 +569,30 @@ def correct_flatfield(
                 raise ValueError("Error! Illumination profiles not found in "
                                 f"{models_folder}.")
             illum_profiles[channel].flatfield = profiles["flatfield"]
+    
+        # Resampling flatfield and darkfield if necessary
+        if illum_profiles[channel].flatfield.shape[-2:] != FOV_shape:
+            logger.warning(
+                f"Flatfield correction matrix shape does not match FOV shape in"
+                f" x and y. FOV YX shape: {FOV_shape}\n"
+                f"Flatfield shape: {illum_profiles[channel].flatfield.shape}. Resampling ...")
+            illum_profiles[channel].flatfield = resample_to_shape(
+                illum_profiles[channel].flatfield, 
+                FOV_shape)
+        illum_profiles[channel].flatfield = da.from_array(illum_profiles[channel].flatfield, 
+                                                          chunks=image_arr.chunksize[-2:])
+
+        if illum_profiles[channel].darkfield is not None:
+            if illum_profiles[channel].darkfield.shape[-2:] != FOV_shape:
+                logger.warning(
+                    "Darkfield correction matrix shape does not match FOV shape"
+                    f" in x and y. FOV YX shape: {FOV_shape}\n"
+                    f"Darkfield shape: {illum_profiles[channel].darkfield.shape}. Resampling ...")
+                illum_profiles[channel].darkfield = resample_to_shape(
+                    illum_profiles[channel].darkfield,
+                    FOV_shape)
+            illum_profiles[channel].darkfield = da.from_array(illum_profiles[channel].darkfield, 
+                                                              chunks=image_arr.chunksize[-2:])
                 
     with Client(cluster) as client:
         futures = []

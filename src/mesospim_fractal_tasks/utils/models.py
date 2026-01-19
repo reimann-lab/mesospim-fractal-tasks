@@ -5,6 +5,7 @@ import numpy as np
 from typing_extensions import Literal
 from mesospim_fractal_tasks.utils.basicpy_nojax import FittingMode, ResizeMode
 import logging
+import dask.array as da
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +38,8 @@ class IlluminationModel(BaseModel):
         arbitrary_types_allowed=True
     )
 
-    flatfield: Optional[np.ndarray] = None
-    darkfield: Optional[np.ndarray] = None
+    flatfield: Optional[np.ndarray | da.Array] = None
+    darkfield: Optional[np.ndarray | da.Array] = None
     baseline: Optional[float] = 0
 
     def save_models(
@@ -54,6 +55,8 @@ class IlluminationModel(BaseModel):
         """
         if self.flatfield is None:
             raise ValueError("Flatfield correction profile not found.")
+        if type(self.flatfield) == da.Array:
+            self.flatfield = self.flatfield.compute()
         if self.darkfield is None:
             logger.warning("Darkfield correction profile not found. "
                            "Saving only flatfield profile and baseline.")
@@ -63,6 +66,8 @@ class IlluminationModel(BaseModel):
                 baseline=np.array(self.baseline),
             )
         else:
+            if type(self.darkfield) == da.Array:
+                self.darkfield = self.darkfield.compute()
             np.savez(
                 Path(Path(folder), "profiles.npz"),
                 flatfield=np.array(self.flatfield),

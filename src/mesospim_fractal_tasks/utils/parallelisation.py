@@ -6,7 +6,7 @@ from dask.distributed import LocalCluster
 import logging
 from pathlib import Path
 import zarr
-from typing import Any, Union, Optional, Sequence, Mapping, Callable
+from typing import Any, Callable
 
 from fractal_tasks_core.roi import convert_ROI_table_to_indices
 
@@ -75,8 +75,7 @@ def correct_per_channel(
         )
 
         corrected_FOV = correct_func(image_array[region], i_ROI,
-                                     **correct_func_kwargs) #da.clip(image_array[region] * gain * z_profile, 
-                         #               0, 65535).astype(np.uint16)
+                                     **correct_func_kwargs)
         
         # Write to disk
         logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")

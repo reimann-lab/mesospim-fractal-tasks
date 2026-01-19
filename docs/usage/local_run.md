@@ -24,12 +24,12 @@ Below is the recommended workflow for running tasks locally.
     This only needs to be done once unless you want to refresh them later.
 
         cd path/to/mesospim-fractal-tasks
-        copy-templates  
+        copy-run-templates  
 
     Or for Windows:
     
         cd C:\path\to\mesospim-fractal-tasks
-        copy-templates  
+        copy-run-templates  
 
     This will generate editable files in the current directory, following the naming pattern:  
         

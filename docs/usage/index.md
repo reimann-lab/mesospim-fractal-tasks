@@ -2,7 +2,7 @@
 
 This package provides two ways of running the mesoSPIM processing tasks depending on the available resources:
 
-1. [**Using Fractal Environment**](fractal_integration.md)   
+1. [**Using Fractal Environment**](fractal_integration.md)  
    Provided that a full Fractal deployment is available, this is the most convenient approach when working with large datasets or when you want to leverage workflow automation and cluster execution. 👉 [**Fractal Execution**](fractal_integration.md)
 
 2. [**Using local Python files**](local_run.md)  

@@ -1,20 +1,11 @@
-from mesospim_fractal_tasks.tasks.crop_regions_of_interest import crop_regions_of_interest
-from mesospim_fractal_tasks.tasks.init_crop_regions_of_interest import init_crop_regions_of_interest
-import os
-from concurrent.futures import ProcessPoolExecutor
+from mesospim_fractal_tasks.tasks.crop_regions_of_interest_dask import crop_regions_of_interest
 
 
 ###############################################################################
 # Set the parameters of the task function
 
-# e.g. ["data/zarr/sampleA/sampleA.zarr/raw_image"]
-zarr_urls = ["path/to/zarr/image"]    
-
-# e.g. "data/zarr/sampleA"
-zarr_dir = "path/to/zarr/directory"
-
-# e.g. number of pyramid levels to build         
-num_levels = 2
+# e.g. "data/zarr/sampleA/sampleA.zarr/raw_image"
+zarr_url = "path/to/zarr/image" 
 
 # e.g. name of the table holding the ROI crop coordinates                     
 roi_table_name = "roi_coords"
@@ -22,30 +13,29 @@ roi_table_name = "roi_coords"
 # e.g. whether to crop main image or extract ROIs
 crop_or_roi = "roi"
 
+# e.g. number of pyramid levels to build for the new ROI.
+num_levels = 4
+
+# e.g. Downsampling factor for the XY plane. Typical is 2
+coarsening_xy = 2
+
+# e.g. Set different chunks than original image.
+# To provide a value use: DimTuple(z=0, y=0, x=0) and replace 0 with your value
+chunksize = None
+
 ###############################################################################
 
 
-def worker(args):
-    return crop_regions_of_interest(**args)
+
+
 
 if __name__ == "__main__":
 
-    N_WORKERS = os.cpu_count() or 1
-    init_dict = init_crop_regions_of_interest(
-        zarr_urls=zarr_urls,
-        zarr_dir=zarr_dir,
+    crop_regions_of_interest(
+        zarr_url=zarr_url,
         roi_table_name=roi_table_name,
-        num_levels=num_levels
+        crop_or_roi=crop_or_roi,
+        num_levels=num_levels,
+        coarsening_xy=coarsening_xy,
+        chunksize=chunksize
     )
-
-    print(f"Launching up to {N_WORKERS} parallel workers.")
-    parallel_list = init_dict["parallelization_list"]
-    new_list = []
-    for element in parallel_list:
-        param = {}
-        param["zarr_url"] = element["zarr_url"]
-        param["init_args"] = element["init_args"]
-        new_list.append(param)
-    
-    with ProcessPoolExecutor(max_workers=N_WORKERS) as pool:
-        results = list(pool.map(worker, new_list))

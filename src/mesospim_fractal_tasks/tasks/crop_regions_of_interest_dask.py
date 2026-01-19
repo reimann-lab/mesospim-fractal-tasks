@@ -16,7 +16,7 @@ import dask.array as da
 import pandas as pd
 import numpy as np
 import anndata as ad
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from pydantic import validate_call
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
@@ -26,8 +26,8 @@ from fractal_tasks_core.tables import write_table
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
                                                      build_pyramid)
-from mesospim_fractal_tasks.utils.parallelisation import (_set_dask_cluster,
-                                                          build_pyramid_per_channel)
+from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 logger = logging.getLogger(__name__)
 
@@ -155,9 +155,9 @@ def save_roi_parallel(
     full_res_arr: da.Array,
     id: str,
     coords: dict[str, int],
-    scale: tuple[float, ...],
+    scale: tuple[float, float, float],
     num_levels: int,
-    coarsening_xy: int,
+    chunksize: tuple[int, int, int, int],
     crop_or_roi: str,
 ) -> None:
     """
@@ -170,22 +170,23 @@ def save_roi_parallel(
         coords (dict[str, int]): Coordinates of the ROI to save.
         scale (tuple[float, float, float]): Pixel scale in um.
         num_levels (int): Number of pyramid levels.
-        coarsening_xy (int): Coarsening factor in XY.
+        chunksize (tuple[int, int, int]): Chunk size to use for the new ROI image(s).
+        crop_or_roi (str): Whether the ROI is a crop or a ROI.
     """
     full_shape = full_res_arr.shape
     z_start, z_end = check_binary_compatibility(max(coords['z_start_um'], 0),
                                                     coords['z_end_um'] + scale[0],
-                                                    full_shape[1],
+                                                    full_shape[1], # type: ignore
                                                     scale[0], 
                                                     power=0)
     y_start, y_end = check_binary_compatibility(max(coords['y_start_um'], 0),
                                                     coords['y_end_um'] + scale[1], 
-                                                    full_shape[2],
+                                                    full_shape[2], # type: ignore
                                                     scale[1],
                                                     power=num_levels)
     x_start, x_end = check_binary_compatibility(max(coords['x_start_um'], 0),
                                                     coords['x_end_um'] + scale[2],
-                                                    full_shape[3], 
+                                                    full_shape[3], # type: ignore
                                                     scale[2],
                                                     power=num_levels)
 
@@ -201,20 +202,20 @@ def save_roi_parallel(
     root_path = zarr_path.parent
     roi_path = Path(root_path, id)
     roi_arr = zarr.create(
-            shape=crop.shape,
-            chunks=full_res_arr.chunksize,
+            shape=crop.shape, # type: ignore
+            chunks=chunksize,
             dtype=full_res_arr.dtype,
-            store=zarr.storage.FSStore(f"{roi_path}/0"),
+            store=zarr.storage.FSStore(f"{roi_path}/0"), # type: ignore
             overwrite=True,
             dimension_separator="/"
     )
-    z_chunk = full_res_arr.chunksize[1]
+    z_chunk = chunksize[1]
     for z in range(0, z_end-z_start, z_chunk):
         region = (slice(None),
                 slice(z, z+z_chunk),
                 slice(None),
                 slice(None))
-        crop[region].to_zarr(roi_arr, compute=True, region=region)
+        crop[region].to_zarr(roi_arr, compute=True, region=region) # type: ignore
     logger.info(f"ROI {id} saved!")
 
     # Copy NGFF metadata from the raw image to the roi image
@@ -263,7 +264,7 @@ def save_roi_parallel(
 
     # Write well ROI table
     logger.info(f"Writing well ROI table for {roi_path.name}")
-    well_table = get_single_image_ROI(roi_arr.shape[1:], scale) 
+    well_table = get_single_image_ROI(roi_arr.shape[1:], list(scale)) # type: ignore
     write_table(
         roi_group,
         "well_ROI_table",
@@ -282,7 +283,7 @@ def crop_regions_of_interest(
     roi_table_name: str = "roi_coords",
     num_levels: Optional[int] = None,
     coarsening_xy: Optional[int] = None,
-    chunksize: Optional[tuple[int, int, int]] = None,
+    chunksize: Optional[DimTuple] = None,
 ) -> Dict[str, Any]:
     """
     Crop regions of interest from a multi-channel OME-Zarr image. It loads the full
@@ -318,13 +319,19 @@ def crop_regions_of_interest(
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     if chunksize is None:
-        chunksize = full_res_arr.chunksize
+        chunk_size = tuple(full_res_arr.chunksize)
+    else:
+        chunk_size = (1, chunksize.z, chunksize.y, chunksize.x)
     if num_levels is None:
         num_levels = image_meta.num_levels
     if coarsening_xy is None:
         coarsening_xy = image_meta.coarsening_xy
         if coarsening_xy is None:
             coarsening_xy = 2
+
+    print(chunksize)
+    import sys
+    sys.exit()
 
     # Read ROI coordinates
     logger.info("Loading ROI coordinates table.")
@@ -378,7 +385,7 @@ def crop_regions_of_interest(
                               coords=crop_coords, 
                               scale=tuple(scale),
                               num_levels=num_levels,
-                              coarsening_xy=coarsening_xy,
+                              chunksize=chunk_size,
                               crop_or_roi=crop_or_roi)
             
             # Write pyramid of resolution
@@ -388,7 +395,7 @@ def crop_regions_of_interest(
                 overwrite=True,
                 num_levels=num_levels,
                 coarsening_xy=coarsening_xy,
-                chunksize=chunksize,
+                chunksize=chunk_size,
             )
             
             # Re-compute optimal contrast limits for ROI
@@ -396,7 +403,7 @@ def crop_regions_of_interest(
             _update_omero_channels(crop_path, {"window": contrast_limits})
         else:
             futures = []
-            for i, roi_params in enumerate(parallelisation_list):
+            for _, roi_params in enumerate(parallelisation_list):
                 fut = client.submit(save_roi_parallel, 
                             zarr_path=zarr_path,
                             full_res_arr=full_res_arr,
@@ -404,25 +411,26 @@ def crop_regions_of_interest(
                             coords=roi_params["roi_coords"],
                             scale=scale,
                             num_levels=num_levels,
-                            coarsening_xy=coarsening_xy,
+                            chunksize=chunk_size,
+                            crop_or_roi=crop_or_roi,
                             pure=False,
                             retries=1)
                 futures.append(fut)
             client.gather(futures)
-            for i, roi_params in enumerate(parallelisation_list):
+            for _, roi_params in enumerate(parallelisation_list):
                 fut = client.submit(build_pyramid, 
                             zarrurl=roi_params["roi_path"],
                             overwrite=True,
                             num_levels=num_levels,
                             coarsening_xy=coarsening_xy,
-                            chunksize=chunksize,
+                            chunksize=chunk_size,
                             pure=False,
                             retries=1)
                 futures.append(fut)
             client.gather(futures)
 
             # Re-compute optimal contrast limits for ROI
-            for i, roi_params in enumerate(parallelisation_list):
+            for _, roi_params in enumerate(parallelisation_list):
                 contrast_limits = _determine_optimal_contrast(
                     roi_params["roi_path"], 
                     num_levels, 

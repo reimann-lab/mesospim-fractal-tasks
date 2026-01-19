@@ -9,14 +9,14 @@ from mesospim_fractal_tasks.utils.models import DimTuple
 # e.g. "/data/zarr/sampleA.zarr/raw_image"
 zarr_url = "path/to/zarr/image"                             
 
-# e.g. "DAPI" or "A01_C01"
-channel_label = "DAPI"
+# e.g. "Lectin" or "PGP9.5"
+channel_label = "Lectin"
 
 # e.g. Default. See documentation for other options.
 registration_function = "phase_correlation"
 
-# e.g. 1, recommended lowest resolution level
-registration_resolution_level = 1
+# e.g. 5, recommended lowest resolution level
+registration_resolution_level = 5
 
 # e.g. True, recommended as first step
 registration_on_z_proj = False
@@ -28,11 +28,11 @@ transform_type = "translation"
 pre_registration_pruning_method = "keep_axis_aligned"
 
 # e.g. Extend the overlap region considered for finding the optimal tile positions
-# To provide a value use: Dimtuple(z=0, y=0, x=0)
-overlap_tolerance = None
+# To provide a value use: DimTuple(z=0, y=0, x=0) and replace 0 with your value
+overlap_tolerance = DimTuple(z=0, y=0, x=0)
 
 # e.g. Set different chunks than original image. Warning: can impact memory.
-# To provide a value use: Dimtuple(z=0, y=0, x=0) and replace 0 with your value
+# To provide a value use: DimTuple(z=0, y=0, x=0) and replace 0 with your value
 fusion_chunksize = None
 
 # e.g. 4, recommended if memory always

@@ -40,12 +40,6 @@ def test_correct_illumination_main_output(
         MODULE + ".compute_global_normalisation",
         return_value=fake_gain_map,
     )
-    mocker.patch(
-        MODULE + "._determine_optimal_contrast"
-    )
-    mocker.patch(
-        MODULE + "._update_omero_channels"
-    )
 
     out = correct_illumination(
         zarr_url=str(tmp_zarr),

@@ -115,7 +115,7 @@ def compute_empty_fov_models(
         FOV_data, flatfield=illumination_profiles.flatfield)
     
     logger.info(f"Illumination profile model fitted "
-                f"for channel {channel_label}...")
+                f"for channel {channel_label}!")
     return illumination_profiles
 
 def compute_basicpy_models(
@@ -162,12 +162,12 @@ def compute_basicpy_models(
         working_size=advanced_basicpy_model_params.working_size
     ) # type: ignore
 
-    if np.shape(FOV_data)[0] == 1:
+    if FOV_data.shape[0] == 1:
         logger.info(f"Stack of ROIs shape is {FOV_data[0, :, :, :].shape}.")
-        basic.fit(FOV_data[0, :, :, :].copmute())
+        basic.fit(FOV_data[0, :, :, :].compute())
     else:
-        logger.info(f"Stack of ROIs shape is {np.squeeze(FOV_data).shape}.")
-        basic.fit(np.squeeze(FOV_data).compute())
+        logger.info(f"Stack of ROIs shape is {da.squeeze(FOV_data).shape}.")
+        basic.fit(np.squeeze(FOV_data.compute()))
 
     logger.info(
         f"BaSiCPy model fitted for channel {channel_label}!")
@@ -231,7 +231,7 @@ def collect_fovs(
     else:
         logger.info(f"Collecting {n_zplanes} random FOVs from full stack of FOVs...")
         n_FOVs = len(FOV_ROI_df.index)
-        FOV_list = range(n_FOVs)
+        FOV_list = range(n_FOVs) # type: ignore
     n_zplanes_per_FOV = max(-(-n_zplanes // n_FOVs), 1)
     if n_zplanes_per_FOV > z_size:
         n_zplanes_per_FOV = z_size
@@ -245,7 +245,7 @@ def collect_fovs(
 
     # Read FOV ROIs
     for i_FOV, _ in enumerate(FOV_ROI_df.index):
-        if i_FOV in FOV_list:
+        if i_FOV in FOV_list: # type: ignore
             logger.info(f"Collecting {n_zplanes_per_FOV} z planes from FOV stack "
                         f"{i_FOV}.")
             if z_levels is not None:

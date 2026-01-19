@@ -1,16 +1,19 @@
 from typing import Dict, Any
 from pydantic import validate_call
 import numpy as np
+import dask
+from dask.delayed import delayed
 import dask.array as da
+from dask.distributed import Client
 import zarr
 from scipy.optimize import least_squares
 import anndata as ad
 from pathlib import Path
 import logging
-from filelock import FileLock
 from scipy.ndimage import gaussian_filter1d
 
 from mesospim_fractal_tasks import __version__, __commit__
+from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 from fractal_tasks_core.roi import (
     convert_ROI_table_to_indices,
@@ -82,11 +85,30 @@ def gain_residuals(
         residuals.append(np.log(gains[i]) - np.log(gains[j]) - np.log(gain))
     return np.array(residuals)
 
+@delayed
+def _gain_from_stats(
+    mean1: float, 
+    mean2: float, 
+    cnt1: int, 
+    cnt2: int, 
+    thresh: float
+) -> float:
+    """
+    Decide gain from overlap statistics.
+    """
+    if (cnt1 < thresh) or (cnt2 < thresh):
+        return 1.0
+    
+    # Protect against division by 0
+    if mean1 <= 0:
+        return 1.0
+    return float(mean2 / mean1)
+
 def compute_global_normalisation(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
-    z_profile: np.ndarray
+    z_profile: da.Array
 ) -> dict[str, float]:
     """
     Compute the global normalisation factors for each ROI to correct for uneven 
@@ -143,6 +165,8 @@ def compute_global_normalisation(
     ROIs = [f"ROI_{i}" for i in range(num_ROIs)]
     i_c = channel_index
     gain_graph = []
+    gain_tasks = []
+    pair_meta = []
 
     for i_ROI1 in range(num_ROIs-1):
         for i_ROI2 in range(i_ROI1+1, num_ROIs):
@@ -161,30 +185,42 @@ def compute_global_normalisation(
                                           s_x2:s_x2 + overlap[1]] * z_profile
                 mask1 = overlap_tile1 > 0
                 mask2 = overlap_tile2 > 0
-                mean1 = da.mean(overlap_tile1[mask1])
-                mean2 = da.mean(overlap_tile2[mask2])
-                overlap_thresh = 0.1 * overlap[0] * overlap[1] * image_arr.shape[1]
-                if da.sum(mask1) < overlap_thresh or da.sum(mask2) < overlap_thresh:
-                    logger.warning(f"Manually setting gain to 1 for ROI pair {i_ROI1} "
-                                   f" and {i_ROI2} because "
-                                   "of meaningless overlap (almost no sample present).")
-                    gain = 1
-                else:
-                    gain = (mean2 / mean1).compute()
-                logger.info(f"ROI_{i_ROI1}, ROI_{i_ROI2}: {gain}")
-                gain_graph.append((f"ROI_{i_ROI1}", f"ROI_{i_ROI2}", gain))
+                sum1 = da.sum(da.where(mask1, overlap_tile1, 0))
+                sum2 = da.sum(da.where(mask2, overlap_tile2, 0))
+                cnt1 = da.sum(mask1)
+                cnt2 = da.sum(mask2)
 
-    logger.info(f"Start computing gain map fo channel {channel_name}...")
+                mean1 = sum1 / da.maximum(cnt1, 1)
+                mean2 = sum2 / da.maximum(cnt2, 1)
+                overlap_thresh = 0.1 * overlap[0] * overlap[1] * image_arr.shape[1]
+                
+                g = _gain_from_stats(mean1, mean2, cnt1, cnt2, overlap_thresh)
+                gain_tasks.append(g)
+                pair_meta.append((i_ROI1, i_ROI2))
+
+    if gain_tasks:
+        gain_vals = dask.compute(*gain_tasks)
+        gain_graph = [
+            (f"ROI_{a}", f"ROI_{b}", float(g))
+            for (a, b), g in zip(pair_meta, gain_vals)
+        ]
+    else:
+        gain_graph = []
+
+    logger.info(f"Solving gains for channel {channel_name} using least squares...")
     ROI_indices = {section: i for i, section in enumerate(ROIs)}
     if len(gain_graph) > 0:
-        gains = least_squares(gain_residuals, x0=np.ones(len(ROIs)), 
-                            args=(gain_graph, ROI_indices), 
-                            bounds=(np.ones(num_ROIs), np.full(num_ROIs, np.inf))).x
+        gains = least_squares(
+            gain_residuals, 
+            x0=np.ones(len(ROIs), dtype=np.float32), 
+            args=(gain_graph, ROI_indices), 
+            bounds=(np.ones(num_ROIs, dtype=np.float32), 
+                    np.full(num_ROIs, np.inf, dtype=np.float32))).x
     else:
-        gains = np.ones(len(ROIs))
+        gains = np.ones(len(ROIs), dtype=np.float32)
     max_idx = np.argmax(gains)
     gain_map = {tile: (gains[i] / gains[max_idx]) for i, tile in enumerate(ROIs)}
-    logger.info(f"Gain map computed: {gain_map}")
+    logger.info(f"Gain map computed for {channel_name}: {gain_map}")
 
     return gain_map
 
@@ -196,6 +232,8 @@ def correct_illumination(
     z_correction: bool = False,
 ) -> dict[str, Any]:
     
+    cluster = _set_dask_cluster()
+
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Illumination Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
@@ -218,6 +256,7 @@ def correct_illumination(
         coarsening_xy = 2
     num_levels = ngff_image_meta.num_levels
     full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
+    z_chunk = image_array.chunks[1][0]
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_url, "tables", "FOV_ROI_table"))
@@ -237,51 +276,56 @@ def correct_illumination(
         z_profile = compute_z_correction_profile(zarr_path, 
                                                  channel_name=channel_name, 
                                                  channel_index=channel_index)
+        # Make z_profile dask-aligned with input chunks to avoid bloated graphs
+        z_profile[channel_name] = da.from_array(z_profile[channel_name], 
+                                                chunks=(1, z_chunk, 1, 1))
     else:
-        z_profile = np.ones((1, image_array.shape[1], 1, 1))
+        z_profile = da.ones((1, image_array.shape[1], 1, 1),
+                            chunks=(1, z_chunk, 1, 1))
     gain_factors = compute_global_normalisation(zarr_path, 
                                                 channel_name=channel_name, 
                                                 channel_index=channel_index,
                                                 z_profile=z_profile)
 
     logger.info(f"Starting illumination correction...")
-    for i_ROI, idxs_ROI in enumerate(indices):
-        s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
-        region = (
-            slice(channel_index, channel_index + 1),
-            slice(s_z, e_z),
-            slice(s_y, e_y),
-            slice(s_x, e_x),
-        )
-        gain = gain_factors[f"ROI_{i_ROI}"]
-        corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
-                                          0, 65535).astype(np.uint16)
-        
-        # Write to disk
-        logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-        corrected_FOV.to_zarr(
-            url=zarr.open(str(new_zarr_path / "0")),
-            region=region,
-            compute=True,
-        )
+    with Client(cluster) as client:
+        for i_ROI, idxs_ROI in enumerate(indices):
+            s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
+            region = (
+                slice(channel_index, channel_index + 1),
+                slice(s_z, e_z),
+                slice(s_y, e_y),
+                slice(s_x, e_x),
+            )
+            gain = gain_factors[f"ROI_{i_ROI}"]
+            corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
+                                            0, 65535).astype(np.uint16)
+            
+            # Write to disk
+            logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
+            corrected_FOV.to_zarr(
+                url=zarr.open(str(new_zarr_path / "0")),
+                region=region,
+                compute=True,
+            )
 
-    logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
-    for level in range(0, num_levels-1):
-        up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-        down_channel_arr = da.coarsen(
-            reduction=np.mean,
-            x=up_channel_arr,
-            axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-            trim_excess=True)
-        region = (slice(channel_index, channel_index+1),
-                  slice(None),
-                  slice(None),
-                  slice(None))
-        down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
-        down_channel_arr.to_zarr(
-            url=zarr.open(str(new_zarr_path / str(level+1))), 
-            region=region, 
-            overwrite=True)
+        logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
+        for level in range(0, num_levels-1):
+            up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
+            down_channel_arr = da.coarsen(
+                reduction=np.mean,
+                x=up_channel_arr,
+                axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
+                trim_excess=True)
+            region = (slice(channel_index, channel_index+1),
+                    slice(None),
+                    slice(None),
+                    slice(None))
+            down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
+            down_channel_arr.to_zarr(
+                url=zarr.open(str(new_zarr_path / str(level+1))), 
+                region=region, 
+                overwrite=True)
         
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:

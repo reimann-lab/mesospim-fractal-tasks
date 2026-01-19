@@ -31,7 +31,6 @@ def test_collect_fovs_default():
     )
 
     # Should return exactly n_zplanes slices
-    assert isinstance(result, np.ndarray)
     assert result.shape[0] == n_zplanes
 
     # Height/width match the computed ROI for FOV_0
@@ -74,10 +73,8 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
         return_value=fake_dask,
     )
     mocker.patch(
-        MODULE + "._determine_optimal_contrast"
-    )
-    mocker.patch(
-        MODULE + "._update_omero_channels"
+        MODULE + ".resample_to_shape",
+        return_value=fake_FOV[0,0,:,:],
     )
 
     out = correct_flatfield(

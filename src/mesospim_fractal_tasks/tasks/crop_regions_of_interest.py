@@ -287,8 +287,8 @@ def crop_regions_of_interest(
         table_attrs={"type": "roi_table"},
     )
 
+    # Write pyramid of resolution
     with Client(cluster) as client:
-        # Write pyramid of resolution
         logger.info(f"Building pyramid of resolution for {roi_path.name}")
         build_pyramid(
             zarrurl=roi_path,

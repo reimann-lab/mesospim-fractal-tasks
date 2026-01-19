@@ -176,9 +176,10 @@ def test_z_correction_call(
 ):
     mocker.patch(MODULE + ".compute_global_normalisation")
 
+    mocker.patch(MODULE + ".da.from_array")
+    mocker.patch(MODULE + ".da.ones")
+
     compute_z = mocker.patch(MODULE + ".compute_z_correction_profile")
-    mocker.patch(MODULE + "._update_omero_channels")
-    mocker.patch(MODULE + "._determine_optimal_contrast")
     
     z_correction = True
     fake_original_zarr = tmp_dataset / "raw_image"

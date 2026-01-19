@@ -1,15 +1,31 @@
 import pytest
 import pandas as pd
 import numpy as np
+import dask.array as da
 
 class FakeDaskArray:
     def __init__(self, arr):
         self.arr = arr
         self.shape = arr.shape
         self.chunksize = arr.shape
+        self.dtype = arr.dtype
+        self.ndim = arr.ndim
+        self.chunks = [[self.arr.shape[i]] for i in range(self.ndim)]
 
     def __getitem__(self, key):
-        return FakeDaskArray(self.arr[key])
+        # Normalize list -> tuple (common bug source)
+        if isinstance(key, list):
+            key = tuple(key)
+
+        # Allow int or slice directly (e.g. arr[0] or arr[:])
+        if isinstance(key, (int, slice)):
+            return FakeDaskArray(self.arr[key])
+
+        # Allow tuple indexing (e.g. arr[(slice(...), slice(...), ...)])
+        if isinstance(key, tuple):
+            return FakeDaskArray(self.arr[key])
+
+        raise TypeError(f"Invalid index type: {type(key)}")
 
     def compute(self):
         return self.arr
@@ -146,7 +162,7 @@ def mock_flatfield_env(
     
     mocks["table_indices"] = mocker.patch(
         module + ".convert_ROI_table_to_indices", 
-        return_value=[])
+        return_value=[[0,5,0,20,0,20]])
     
     arr = np.arange(5*20*20).reshape(1, 5, 20, 20)
     fake_dask = FakeDaskArray(arr)
@@ -165,13 +181,21 @@ def mock_flatfield_env(
         module + ".da.coarsen")
     mocks["copy_tables"] = mocker.patch(
         module + "._copy_tables_from_zarr_url")
-    mocks["determine_contrast"] = mocker.patch(
-        module + "._determine_optimal_contrast", return_value=[0, 255])
-    mocks["update_channels"] = mocker.patch(
-        module + "._update_omero_channels")
     mocks["dask_to_zarr"] = mocker.patch(
-        "dask.array.core.Array.to_zarr", return_value=None
-    )
+        "dask.array.core.Array.to_zarr")
+    mocks["dask_from_array"] = mocker.patch(
+        "dask.array.from_array")
+    mocks["resample"] = mocker.patch(
+        module + ".resample_to_shape")
+    mocks["concatenate"] = mocker.patch(
+        module + ".da.concatenate",
+    side_effect=lambda xs, axis=0: FakeDaskArray(
+        np.concatenate(
+            [x.arr if isinstance(x, FakeDaskArray) else x for x in xs],
+            axis=axis
+        )
+    ),
+)
 
     return mocks
 

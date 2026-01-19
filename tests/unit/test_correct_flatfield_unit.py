@@ -1,4 +1,5 @@
 import numpy as np
+import dask.array as da
 import pytest
 from pathlib import Path
 
@@ -26,7 +27,6 @@ def test_collect_fovs_with_fov_list(
         n_zplanes=n_zplanes,
         z_levels=None,
     )
-    assert isinstance(out, np.ndarray)
     assert out.shape[0] == n_zplanes
     assert out.shape == (2, 20, 20)
 
@@ -47,7 +47,6 @@ def test_collect_fovs_with_z_levels(
     )
 
     # Should return exactly n_zplanes slices
-    assert isinstance(out, np.ndarray)
     assert out.shape[0] == n_zplanes
     assert out.shape == (2, 20, 20)
 

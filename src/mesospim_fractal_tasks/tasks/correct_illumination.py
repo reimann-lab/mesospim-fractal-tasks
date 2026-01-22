@@ -23,6 +23,16 @@ from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
 logger = logging.getLogger(__name__)
 
+def print_dict(
+    d: dict, 
+    float_precision: int = 3
+) -> str:
+    lines = []
+    for k in sorted(d, key=lambda x: int(x.split("_")[1])):
+        v = float(d[k])
+        lines.append(f"  {k:<7}: {v:.{float_precision}f}")
+    return "\n".join(lines)
+
 def compute_z_correction_profile(
     zarr_path: Path,
     channel_name: str,
@@ -220,7 +230,7 @@ def compute_global_normalisation(
         gains = np.ones(len(ROIs), dtype=np.float32)
     max_idx = np.argmax(gains)
     gain_map = {tile: (gains[i] / gains[max_idx]) for i, tile in enumerate(ROIs)}
-    logger.info(f"Gain map computed for {channel_name}: {gain_map}")
+    logger.info(f"Gain map computed for {channel_name}:\n" + print_dict(gain_map))
 
     return gain_map
 

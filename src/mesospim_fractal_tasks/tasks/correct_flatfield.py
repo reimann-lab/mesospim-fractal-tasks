@@ -382,7 +382,7 @@ def correct_flatfield(
     models_folder: Optional[str] = None,
     resolution_level: Optional[int] = None,
     n_zplanes: int = 200,
-    advanced_basicpy_model_params: BaSiCPyModelParams = Field(
+    advanced_basicpy_model_params: Optional[BaSiCPyModelParams] = Field(
         default_factory=BaSiCPyModelParams),
     input_ROI_table: str = "FOV_ROI_table",
 ) -> dict[str, list]:
@@ -601,7 +601,7 @@ def correct_flatfield(
                 resolution_level=resolution_level,
                 n_zplanes=n_zplanes,
                 advanced_basicpy_model_params=get_non_default_params(
-                    advanced_basicpy_model_params),
+                    advanced_basicpy_model_params) if advanced_basicpy_model_params is not None else None,
                 input_ROI_table=input_ROI_table,
                 FOV_list=init_args["FOV_list"],
                 z_levels=init_args["z_levels"],

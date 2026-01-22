@@ -39,6 +39,16 @@ from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
 logger = logging.getLogger(__name__)
 
+def print_dict(
+    d: dict, 
+    float_precision: int = 3
+) -> str:
+    lines = []
+    for k in sorted(d, key=lambda x: int(x.split("_")[1])):
+        v = float(d[k])
+        lines.append(f"  {k:<7}: {v:.{float_precision}f}")
+    return "\n".join(lines)
+
 def compute_z_correction_profile(
     zarr_path: Path,
     channel_name: str,
@@ -236,7 +246,7 @@ def compute_global_normalisation(
         gains = np.ones(len(ROIs), dtype=np.float32)
     max_idx = np.argmax(gains)
     gain_map = {tile: (gains[i] / gains[max_idx]) for i, tile in enumerate(ROIs)}
-    logger.info(f"Gain map computed for {channel_name}: {gain_map}")
+    logger.info(f"Gain map computed for {channel_name}:\n" + print_dict(gain_map))
 
     return gain_map
 
@@ -256,8 +266,6 @@ def correct_illumination(
     zarr_url: str,
     z_correction: bool = False,
 ) -> dict[str, Any]:
-    
-    cluster = _set_dask_cluster()
 
     # Define new zarr path
     zarr_path = Path(zarr_url)
@@ -309,39 +317,40 @@ def correct_illumination(
                                                     channel_index=channel_index,
                                                     z_profile=z_profile[channel_name])
 
-    with Client(cluster) as client:
-        futures = []
-        for channel_name, channel_idx in channel_dict.items():
-            fut = client.submit(
-                correct_per_channel,
-                zarr_path=zarr_path,
-                new_zarr_path=new_zarr_path,
-                channel_name=channel_name,
-                channel_index=channel_idx,
-                full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-                correct_func=correct_FOV,
-                correct_func_kwargs={"gain_factors": gain_factors[channel_name],
-                                     "z_profile": z_profile[channel_name]},
-                pure=False,
-                retries=1
-            )
-            futures.append(fut)
-        client.gather(futures)
+    with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
+        with Client(cluster) as client:
+            futures = []
+            for channel_name, channel_idx in channel_dict.items():
+                fut = client.submit(
+                    correct_per_channel,
+                    zarr_path=zarr_path,
+                    new_zarr_path=new_zarr_path,
+                    channel_name=channel_name,
+                    channel_index=channel_idx,
+                    full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+                    correct_func=correct_FOV,
+                    correct_func_kwargs={"gain_factors": gain_factors[channel_name],
+                                        "z_profile": z_profile[channel_name]},
+                    pure=False,
+                    retries=1
+                )
+                futures.append(fut)
+            client.gather(futures)
 
-        futures = []
-        for channel_name, channel_idx in channel_dict.items():
-            fut = client.submit(
-                build_pyramid_per_channel,
-                new_zarr_path=new_zarr_path,
-                channel_index=channel_idx,
-                num_levels=num_levels,
-                coarsening_xy=coarsening_xy,
-                chunksize=image_array.chunksize,
-                pure=False,
-                retries=1
-            )
-            futures.append(fut)
-        client.gather(futures)
+            futures = []
+            for channel_name, channel_idx in channel_dict.items():
+                fut = client.submit(
+                    build_pyramid_per_channel,
+                    new_zarr_path=new_zarr_path,
+                    channel_index=channel_idx,
+                    num_levels=num_levels,
+                    coarsening_xy=coarsening_xy,
+                    chunksize=image_array.chunksize,
+                    pure=False,
+                    retries=1
+                )
+                futures.append(fut)
+            client.gather(futures)
 
     # Copy ROI tables from the old zarr_url
     _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))

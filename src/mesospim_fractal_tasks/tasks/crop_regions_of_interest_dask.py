@@ -310,8 +310,6 @@ def crop_regions_of_interest(
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Crop Region of Interest` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
-    
-    cluster = _set_dask_cluster()
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image...")
@@ -319,19 +317,18 @@ def crop_regions_of_interest(
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     if chunksize is None:
+        logger.info(f"chunksize: {full_res_arr.chunksize}")
         chunk_size = tuple(full_res_arr.chunksize)
     else:
-        chunk_size = (1, chunksize.z, chunksize.y, chunksize.x)
+        logger.info(f"chunksize: {chunksize}")
+        chunk_size = (1, int(chunksize.z), int(chunksize.y), int(chunksize.x)) # type: ignore
     if num_levels is None:
         num_levels = image_meta.num_levels
     if coarsening_xy is None:
         coarsening_xy = image_meta.coarsening_xy
         if coarsening_xy is None:
             coarsening_xy = 2
-
-    print(chunksize)
-    import sys
-    sys.exit()
+    logger.info(f"chunksize: {chunk_size}")
 
     # Read ROI coordinates
     logger.info("Loading ROI coordinates table.")
@@ -374,60 +371,65 @@ def crop_regions_of_interest(
                                        origin=str(zarr_path), 
                                        attributes=dict(image=roi_id),
                                        types={roi_type: True}))
-    with Client(cluster) as client:
-        if crop_or_roi == "crop":
-            crop_id = parallelisation_list[0]["roi_id"]
-            crop_coords = parallelisation_list[0]["roi_coords"]
-            crop_path = parallelisation_list[0]["roi_path"]
-            save_roi_parallel(zarr_path, 
-                              full_res_arr=full_res_arr,
-                              id=crop_id, 
-                              coords=crop_coords, 
-                              scale=tuple(scale),
-                              num_levels=num_levels,
-                              chunksize=chunk_size,
-                              crop_or_roi=crop_or_roi)
-            
-            # Write pyramid of resolution
-            logger.info(f"Building pyramid of resolution for {crop_path.name}")
-            build_pyramid(
-                zarrurl=crop_path,
-                overwrite=True,
-                num_levels=num_levels,
-                coarsening_xy=coarsening_xy,
-                chunksize=chunk_size,
-            )
-            
-            # Re-compute optimal contrast limits for ROI
-            contrast_limits = _determine_optimal_contrast(crop_path, num_levels, segment_sample=True)
-            _update_omero_channels(crop_path, {"window": contrast_limits})
-        else:
-            futures = []
-            for _, roi_params in enumerate(parallelisation_list):
-                fut = client.submit(save_roi_parallel, 
-                            zarr_path=zarr_path,
-                            full_res_arr=full_res_arr,
-                            id=roi_params["roi_id"],
-                            coords=roi_params["roi_coords"],
-                            scale=scale,
-                            num_levels=num_levels,
-                            chunksize=chunk_size,
-                            crop_or_roi=crop_or_roi,
-                            pure=False,
-                            retries=1)
-                futures.append(fut)
-            client.gather(futures)
-            for _, roi_params in enumerate(parallelisation_list):
-                fut = client.submit(build_pyramid, 
-                            zarrurl=roi_params["roi_path"],
-                            overwrite=True,
-                            num_levels=num_levels,
-                            coarsening_xy=coarsening_xy,
-                            chunksize=chunk_size,
-                            pure=False,
-                            retries=1)
-                futures.append(fut)
-            client.gather(futures)
+    if crop_or_roi == "crop":    
+        with _set_dask_cluster(n_workers=4) as cluster:
+            with Client(cluster) as client:
+                client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+                crop_id = parallelisation_list[0]["roi_id"]
+                crop_coords = parallelisation_list[0]["roi_coords"]
+                crop_path = parallelisation_list[0]["roi_path"]
+                save_roi_parallel(zarr_path, 
+                                full_res_arr=full_res_arr,
+                                id=crop_id, 
+                                coords=crop_coords, 
+                                scale=tuple(scale),
+                                num_levels=num_levels,
+                                chunksize=chunk_size,
+                                crop_or_roi=crop_or_roi)
+                
+                # Write pyramid of resolution
+                logger.info(f"Building pyramid of resolution for {crop_path.name}")
+                build_pyramid(
+                    zarrurl=crop_path,
+                    overwrite=True,
+                    num_levels=num_levels,
+                    coarsening_xy=coarsening_xy,
+                    chunksize=chunk_size,
+                )
+                
+                # Re-compute optimal contrast limits for ROI
+                contrast_limits = _determine_optimal_contrast(crop_path, num_levels, segment_sample=True)
+                _update_omero_channels(crop_path, {"window": contrast_limits})
+    else:
+        with _set_dask_cluster(n_workers=len(parallelisation_list)) as cluster:
+            with Client(cluster) as client:
+                client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+                futures = []
+                for _, roi_params in enumerate(parallelisation_list):
+                    fut = client.submit(save_roi_parallel, 
+                                zarr_path=zarr_path,
+                                full_res_arr=full_res_arr,
+                                id=roi_params["roi_id"],
+                                coords=roi_params["roi_coords"],
+                                scale=scale,
+                                num_levels=num_levels,
+                                chunksize=chunk_size,
+                                crop_or_roi=crop_or_roi,
+                                pure=False,
+                                retries=1)
+                    futures.append(fut)
+                client.gather(futures)
+                for _, roi_params in enumerate(parallelisation_list):
+                    fut = client.submit(build_pyramid, 
+                                zarrurl=roi_params["roi_path"],
+                                overwrite=True,
+                                num_levels=num_levels,
+                                coarsening_xy=coarsening_xy,
+                                chunksize=chunk_size,
+                                pure=False,
+                                retries=1)
+                    futures.append(fut)
+                client.gather(futures)
 
             # Re-compute optimal contrast limits for ROI
             for _, roi_params in enumerate(parallelisation_list):
@@ -436,7 +438,7 @@ def crop_regions_of_interest(
                     num_levels, 
                     segment_sample=True)
                 _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
-    
+
     image_list_updates = dict(
         image_list_updates=image_list_updates
     )

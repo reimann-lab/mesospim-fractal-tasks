@@ -6,13 +6,14 @@ from dask.distributed import LocalCluster
 import logging
 from pathlib import Path
 import zarr
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 from fractal_tasks_core.roi import convert_ROI_table_to_indices
 
 logger = logging.getLogger(__name__)
 
 def _set_dask_cluster(
+    n_workers: Optional[int] = None,
 ) -> LocalCluster:
     """
     Set up a dask cluster for distributed computing.
@@ -21,19 +22,24 @@ def _set_dask_cluster(
         Dask cluster.
     """
 
-    workers = os.environ.get("SLURM_CPUS_PER_TASK", None)
-    if workers is None:
-        workers = os.cpu_count()
-        if workers is None:
-            workers = 1
-    workers = int(workers)
+    
+    cpus = os.environ.get("SLURM_CPUS_PER_TASK", None)
+    if cpus is None:
+        cpus = os.cpu_count()
+        if cpus is None:
+            raise ValueError("Number of CPUs not found.")
+    
+    if n_workers is None:
+        n_workers = int(cpus)
+    else:
+        min(n_workers, cpus)
 
     cluster = LocalCluster(
-        n_workers=workers,
-        threads_per_worker=1,
+        n_workers=n_workers,
+        threads_per_worker=max(int(cpus / n_workers), 1),
         processes=True,
         dashboard_address=None,
-        silence_logs=logging.ERROR,
+        #silence_logs=logging.ERROR,
     )
     return cluster
 
@@ -47,7 +53,7 @@ def correct_per_channel(
     correct_func: Callable[..., da.Array],
     correct_func_kwargs: dict[str, Any],
 ) -> None:
-
+    #dask_quiet()
     image_array = da.from_zarr(zarr_path / "0")
     new_image_array = zarr.open_array(new_zarr_path / "0")
 
@@ -84,6 +90,7 @@ def correct_per_channel(
             region=region,
             compute=True,
         )
+    logger.info(f"Illumination correction for {channel_name} completed.")
 
 def build_pyramid_per_channel(
     new_zarr_path: Path,

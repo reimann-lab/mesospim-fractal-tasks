@@ -808,8 +808,6 @@ def mesospim_to_omezarr(
     logger.info(f"Start task: `MesoSPIM to OME-Zarr`. "
                 f"Zarr Directory set to: {zarr_dir}")
 
-    cluster = _set_dask_cluster()
-
     # Check if the zarr directory exists
     if not Path(zarr_dir).exists():
         raise FileNotFoundError(f"Zarr directory {zarr_dir} does not exist.")
@@ -866,18 +864,20 @@ def mesospim_to_omezarr(
     chunk_sizes.z = chunksize[0]
     chunk_sizes.y = chunksize[1]
     chunk_sizes.x = chunksize[2]
-    
-    with Client(cluster) as client:
-        convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
 
-        # Build the pyramid
-        build_pyramid(
-            zarrurl=str(image_path),
-            overwrite=True,
-            num_levels=num_levels,
-            coarsening_xy=coarsening_factor,
-            chunksize=chunk_sizes.get_chunksize()
-        )
+    with _set_dask_cluster(n_workers=4) as cluster:
+        with Client(cluster) as client:
+            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+            convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
+
+            # Build the pyramid
+            build_pyramid(
+                zarrurl=str(image_path),
+                overwrite=True,
+                num_levels=num_levels,
+                coarsening_xy=coarsening_factor,
+                chunksize=chunk_sizes.get_chunksize()
+                )
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(image_path, 

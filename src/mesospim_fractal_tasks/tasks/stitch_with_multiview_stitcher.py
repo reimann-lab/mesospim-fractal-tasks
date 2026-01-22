@@ -47,7 +47,7 @@ def stitch_with_multiview_stitcher(
     pre_registration_pruning_method: str = "keep_axis_aligned",
     max_workers: int = 4,
     fusion_chunksize: Optional[DimTuple] = None,
-) -> dict[str, dict]:
+) -> dict[str, list]:
     """Stitches FOVs from an OME-Zarr image.
 
     Performs registration and fusion of FOVs indicated
@@ -125,7 +125,7 @@ def stitch_with_multiview_stitcher(
     z_dim = xim_well_reg.shape[1]
     if registration_on_z_proj:
         xim_well_reg = xim_well_reg.max("z")
-        overlap_tolerance = DimTuple(y=0, x=0)
+        overlap_tolerance = DimTuple(z=None, y=0, x=0)
 
     # Define the registration grid
     msims_reg = get_tiles_from_sim(
@@ -192,12 +192,11 @@ def stitch_with_multiview_stitcher(
     # Preparing for fusion
     output_zarr_path = Path(zarr_path.parent, zarr_path.name + "_fused")
     logger.info(f"Saving fused image to {output_zarr_path.name}") 
-    output_zarr_final = Path(output_zarr_path, "0")
 
     if fusion_chunksize is None:
-        fusion_chunksize = original_chunksize[-3:]
+        fusion_chunks_tuple = original_chunksize[-3:]
     else:
-        fusion_chunksize = (fusion_chunksize.z, fusion_chunksize.y, fusion_chunksize.x)
+        fusion_chunks_tuple = (fusion_chunksize.z, fusion_chunksize.y, fusion_chunksize.x)
     logger.info(f"Fusion chunk size set to: {fusion_chunksize}.")
     
     if registration_resolution_level == 0 and not registration_on_z_proj:
@@ -207,7 +206,7 @@ def stitch_with_multiview_stitcher(
         # Load the full-resolution image for fusion
         xim_well = get_sim_from_multiscales(zarr_path, 
                                             resolution=0, 
-                                            chunks=(1,) + fusion_chunksize)
+                                            chunks=(1,) + fusion_chunks_tuple)
         msims_fusion = get_tiles_from_sim(
             xim_well, fov_roi_table, transform_key=input_transform_key
         )
@@ -242,7 +241,7 @@ def stitch_with_multiview_stitcher(
         }
     else:
         fusion_chunksize_dict = {
-            dim: cs for dim, cs in zip(sdims, fusion_chunksize)
+            dim: cs for dim, cs in zip(sdims, fusion_chunks_tuple)
         }
 
     batch_options = {"zarr_array_creation_kwargs": {"dimension_separator": "/"},
@@ -263,12 +262,12 @@ def stitch_with_multiview_stitcher(
         drop_t=True,
         output_chunksize=fusion_chunksize_dict,
         output_spacing=si_utils.get_spacing_from_sim(sims[0]),
-        output_zarr_url=output_zarr_final,
+        output_zarr_url=str(output_zarr_path / "0"),
         batch_options=batch_options
     )
 
     # Open the zarr group (read/write)
-    new_shape = zarr.open(output_zarr_final).shape
+    new_shape = zarr.open_array(output_zarr_path / "0").shape
     
     logger.info("Finished fusing tiles.")
 
@@ -291,7 +290,7 @@ def stitch_with_multiview_stitcher(
         .coordinateTransformations[0]
         .scale[-3:]
     )
-    new_group = zarr.open(output_zarr_path, mode="a")
+    new_group = zarr.open_group(output_zarr_path, mode="a")
     image_ROI_table = get_single_image_ROI(new_shape, pixels_ZYX=pixels_ZYX)
     write_table(
         new_group,

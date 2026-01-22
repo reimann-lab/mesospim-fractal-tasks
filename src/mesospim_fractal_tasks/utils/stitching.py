@@ -8,11 +8,11 @@ from tqdm import tqdm
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Union
-from concurrent.futures import ProcessPoolExecutor, as_completed, FIRST_COMPLETED, wait
+from concurrent.futures import ProcessPoolExecutor, FIRST_COMPLETED, wait
 import os
 import dask.array as da
 import spatial_image as si
-from dask import delayed
+from dask.delayed import delayed
 from dask import config as dask_config
 import zarr
 import pandas as pd
@@ -452,12 +452,12 @@ def prepare_block_fusion(
         shape=full_output_shape,
         chunks=full_output_chunksize)
     
-    print(f"Fusing into a an output stack:")
-    print("- shape: ", {dim: int(output_stack_properties['shape'][dim])
+    logger.info(f"Fusing into a an output stack:")
+    logger.info("- shape: ", {dim: int(output_stack_properties['shape'][dim])
         if dim in sdims else ns_shape[dim] for dim in dims})
-    print("- spacing: ", {k: float(v)
+    logger.info("- spacing: ", {k: float(v)
         for k, v in output_stack_properties['spacing'].items()})
-    print("- origin: ", {k: float(v)
+    logger.info("- origin: ", {k: float(v)
         for k, v in output_stack_properties['origin'].items()})
 
     # Create Zarr array ONCE

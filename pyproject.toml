@@ -61,7 +61,7 @@ dependencies = [
     "zarr<3",
     "pandas",
     "numpy", 
-    "fractal-task-tools==0.1.12", 
+    "fractal-task-tools==0.1.1", 
     "fractal-tasks-core==1.5.6",
     "multiview-stitcher==0.1.40",
     "anndata",

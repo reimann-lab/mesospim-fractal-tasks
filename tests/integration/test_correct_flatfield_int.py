@@ -9,6 +9,7 @@ from mesospim_fractal_tasks.tasks.correct_flatfield import (
     correct_flatfield,
     collect_fovs
 )
+from tests.conftest import mock_dask_distributed
 
 MODULE = "mesospim_fractal_tasks.tasks.correct_flatfield"
 
@@ -38,6 +39,9 @@ def test_collect_fovs_default():
     assert result.shape[2] == FOV_size[1]
 
 def test_correct_flatfield_main_output(tmp_dataset, mocker):
+
+    mock_dask_distributed(mocker, MODULE)
+
     example_zarr_path = Path("tests/data/ngff_example")
     shutil.copytree(example_zarr_path, tmp_dataset / "ngff_example")
     tmp_zarr = tmp_dataset / "ngff_example" / "my_image"

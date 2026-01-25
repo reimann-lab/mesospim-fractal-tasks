@@ -8,6 +8,7 @@ import zarr
 from mesospim_fractal_tasks.tasks.correct_illumination import (
     correct_illumination,
 )
+from tests.conftest import mock_dask_distributed
 
 MODULE = "mesospim_fractal_tasks.tasks.correct_illumination"
 
@@ -15,6 +16,7 @@ def test_correct_illumination_main_output(
     tmp_dataset, 
     mocker
 ):
+    mock_dask_distributed(mocker, MODULE)
     example_zarr_path = Path("tests/data/ngff_example")
     shutil.copytree(example_zarr_path, tmp_dataset / "ngff_example")
     tmp_zarr = tmp_dataset / "ngff_example" / "my_image"

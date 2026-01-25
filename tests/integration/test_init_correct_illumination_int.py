@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 import zarr
 
+
 def test_integration_creates_zarr_pyramid(
     tmp_dataset
 ):

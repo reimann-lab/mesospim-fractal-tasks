@@ -35,7 +35,7 @@ class FakeDaskArray:
 
     def to_zarr(self, *a, **k):
         return None
-    
+
 def mock_dask_distributed(
     mocker,
     module: str

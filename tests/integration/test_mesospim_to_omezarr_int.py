@@ -6,6 +6,7 @@ from pathlib import Path
 from mesospim_fractal_tasks.tasks.mesospim_to_omezarr import (
     mesospim_to_omezarr,
 )
+from tests.conftest import mock_dask_distributed
 
 MODULE = "mesospim_fractal_tasks.tasks.mesospim_to_omezarr"
 
@@ -13,6 +14,9 @@ def test_mesospim_to_omezarr_writes_correct_data_h5(
     tmp_dataset, 
     mocker
 ):
+    
+    mock_dask_distributed(mocker, MODULE)
+
     data_dir = Path("tests/data")
     for f in data_dir.glob("*example*"):
         if f.is_file():

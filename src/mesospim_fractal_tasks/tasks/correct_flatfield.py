@@ -382,8 +382,7 @@ def correct_flatfield(
     models_folder: Optional[str] = None,
     resolution_level: Optional[int] = None,
     n_zplanes: int = 200,
-    advanced_basicpy_model_params: Optional[BaSiCPyModelParams] = Field(
-        default_factory=BaSiCPyModelParams),
+    advanced_basicpy_model_params: Optional[BaSiCPyModelParams] = None,
     input_ROI_table: str = "FOV_ROI_table",
 ) -> dict[str, list]:
 
@@ -415,7 +414,6 @@ def correct_flatfield(
             have multiple FOVs per Zarr image and set the right grid options
             during import.
     """
-    cluster = _set_dask_cluster()
 
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Flatfield Correction` "
@@ -454,130 +452,134 @@ def correct_flatfield(
         n_zplanes=n_zplanes,
         z_levels=init_args["z_levels"],
     )
-    if models_folder is None:
-        if FOV_list is not None:
-            with Client(cluster) as client:
-                illum_profiles = compute_empty_fov_models(
+
+    with _set_dask_cluster() as cluster:
+        if models_folder is None:
+            if FOV_list is not None:
+                with Client(cluster) as client:
+                    illum_profiles = compute_empty_fov_models(
+                        FOV_data=FOV_data,
+                    )
+            else:
+                if advanced_basicpy_model_params is None:
+                        advanced_basicpy_model_params = BaSiCPyModelParams()
+                illum_profiles = compute_basicpy_models(
                     FOV_data=FOV_data,
+                    advanced_basicpy_model_params=advanced_basicpy_model_params,
                 )
-        else:
-            illum_profiles = compute_basicpy_models(
-                FOV_data=FOV_data,
-                advanced_basicpy_model_params=advanced_basicpy_model_params,
-            )
 
-        if init_args["saving_path"] is not None:
-            illum_profiles.save_models(folder=init_args["saving_path"])
-    else:
-        # Load illumination model
-        logger.info(
-            f"Loading illumination profiles for channel {channel_name} from "
-            f"{models_folder}."
+            if init_args["saving_path"] is not None:
+                illum_profiles.save_models(folder=init_args["saving_path"])
+        else:
+            # Load illumination model
+            logger.info(
+                f"Loading illumination profiles for channel {channel_name} from "
+                f"{models_folder}."
+            )
+            illum_profiles = IlluminationModel()
+            profiles = np.load(Path(models_folder, channel_name, "profiles.npz"))
+            if "darkfield" not in profiles.keys():
+                logger.warning("Darkfield profile not found in "
+                                f"{models_folder}. Skipping darkfield correction.")
+            else:
+                illum_profiles.darkfield = profiles["darkfield"]
+            if "baseline" not in profiles.keys():
+                logger.warning("Baseline profile not found in "
+                                f"{models_folder}. Skipping baseline correction.")
+            else:
+                illum_profiles.baseline = profiles["baseline"]
+            if "flatfield" not in profiles.keys():
+                raise ValueError("Error! Illumination profiles not found in "
+                                f"{models_folder}.")
+            illum_profiles.flatfield = profiles["flatfield"]
+
+        # Read FOV ROIs
+        FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", input_ROI_table))
+
+        # Create list of indices for 3D FOVs spanning the entire Z direction
+        list_indices = convert_ROI_table_to_indices(
+            FOV_ROI_table,
+            level=0,
+            coarsening_xy=coarsening_xy,
+            full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
         )
-        illum_profiles = IlluminationModel()
-        profiles = np.load(Path(models_folder, channel_name, "profiles.npz"))
-        if "darkfield" not in profiles.keys():
-            logger.warning("Darkfield profile not found in "
-                             f"{models_folder}. Skipping darkfield correction.")
-        else:
-            illum_profiles.darkfield = profiles["darkfield"]
-        if "baseline" not in profiles.keys():
-            logger.warning("Baseline profile not found in "
-                             f"{models_folder}. Skipping baseline correction.")
-        else:
-            illum_profiles.baseline = profiles["baseline"]
-        if "flatfield" not in profiles.keys():
-            raise ValueError("Error! Illumination profiles not found in "
-                             f"{models_folder}.")
-        illum_profiles.flatfield = profiles["flatfield"]
 
-    # Read FOV ROIs
-    FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", input_ROI_table))
+        # Lazily load highest-res level from original zarr array
+        image_arr = da.from_zarr(Path(zarr_path, "0"))
+        new_image_arr = zarr.open_array(str((new_zarr_path / "0")))
+        FOV_shape = (list_indices[0][-3], list_indices[0][-1])
 
-    # Create list of indices for 3D FOVs spanning the entire Z direction
-    list_indices = convert_ROI_table_to_indices(
-        FOV_ROI_table,
-        level=0,
-        coarsening_xy=coarsening_xy,
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-    )
+        # Resampling flatfield and darkfield if necessary
+        if illum_profiles.flatfield is not None:
+            if illum_profiles.flatfield.shape[-2:] != FOV_shape:
+                logger.warning(
+                    f"Flatfield correction matrix shape does not match FOV shape in"
+                    f" x and y. FOV YX shape: {FOV_shape}\n"
+                    f"Flatfield shape: {illum_profiles.flatfield.shape}. Resampling ...")
+                illum_profiles.flatfield = resample_to_shape(
+                    illum_profiles.flatfield, 
+                    FOV_shape)
+            illum_profiles.flatfield = da.from_array(illum_profiles.flatfield, 
+                                                    chunks=image_arr.chunksize[-2:])
 
-    # Lazily load highest-res level from original zarr array
-    image_arr = da.from_zarr(Path(zarr_path, "0"))
-    new_image_arr = zarr.open_array(str((new_zarr_path / "0")))
-    FOV_shape = (list_indices[0][-3], list_indices[0][-1])
+        if illum_profiles.darkfield is not None:
+            if illum_profiles.darkfield.shape[-2:] != FOV_shape:
+                logger.warning(
+                    "Darkfield correction matrix shape does not match FOV shape"
+                    f" in x and y. FOV YX shape: {FOV_shape}\n"
+                    f"Darkfield shape: {illum_profiles.darkfield.shape}. Resampling ...")
+                illum_profiles.darkfield = resample_to_shape(
+                    illum_profiles.darkfield,
+                    FOV_shape)
+            illum_profiles.darkfield = da.from_array(illum_profiles.darkfield, 
+                                                    chunks=image_arr.chunksize[-2:])
 
-    # Resampling flatfield and darkfield if necessary
-    if illum_profiles.flatfield is not None:
-        if illum_profiles.flatfield.shape[-2:] != FOV_shape:
-            logger.warning(
-                f"Flatfield correction matrix shape does not match FOV shape in"
-                f" x and y. FOV YX shape: {FOV_shape}\n"
-                f"Flatfield shape: {illum_profiles.flatfield.shape}. Resampling ...")
-            illum_profiles.flatfield = resample_to_shape(
-                illum_profiles.flatfield, 
-                FOV_shape)
-        illum_profiles.flatfield = da.from_array(illum_profiles.flatfield, 
-                                                 chunks=image_arr.chunksize[-2:])
+        # Iterate over FOV ROIs
+        with Client(cluster) as client:
+            num_ROIs = len(list_indices)
+            for i_ROI, indices in enumerate(list_indices):
 
-    if illum_profiles.darkfield is not None:
-        if illum_profiles.darkfield.shape[-2:] != FOV_shape:
-            logger.warning(
-                "Darkfield correction matrix shape does not match FOV shape"
-                f" in x and y. FOV YX shape: {FOV_shape}\n"
-                f"Darkfield shape: {illum_profiles.darkfield.shape}. Resampling ...")
-            illum_profiles.darkfield = resample_to_shape(
-                illum_profiles.darkfield,
-                FOV_shape)
-        illum_profiles.darkfield = da.from_array(illum_profiles.darkfield, 
-                                                 chunks=image_arr.chunksize[-2:])
+                # Define region
+                s_z, e_z, s_y, e_y, s_x, e_x = indices[:]
+                region = (
+                    slice(channel_index, channel_index + 1),
+                    slice(s_z, e_z),
+                    slice(s_y, e_y),
+                    slice(s_x, e_x),
+                )
 
-    # Iterate over FOV ROIs
-    with Client(cluster) as client:
-        num_ROIs = len(list_indices)
-        for i_ROI, indices in enumerate(list_indices):
+                # Execute illumination correction with appropriate darkfield setting
+                logger.info(f"Now processing ROI {i_ROI + 1}/{num_ROIs}")
+                corrected_fov = correct(
+                    img_stack=image_arr[region],
+                    illum_profiles=illum_profiles
+                )
 
-            # Define region
-            s_z, e_z, s_y, e_y, s_x, e_x = indices[:]
-            region = (
-                slice(channel_index, channel_index + 1),
-                slice(s_z, e_z),
-                slice(s_y, e_y),
-                slice(s_x, e_x),
-            )
+                # Write to disk
+                logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
+                corrected_fov.to_zarr( # type: ignore
+                    url=new_image_arr,
+                    region=region,
+                    compute=True,
+                )
 
-            # Execute illumination correction with appropriate darkfield setting
-            logger.info(f"Now processing ROI {i_ROI + 1}/{num_ROIs}")
-            corrected_fov = correct(
-                img_stack=image_arr[region],
-                illum_profiles=illum_profiles
-            )
-
-            # Write to disk
-            logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-            corrected_fov.to_zarr( # type: ignore
-                url=new_image_arr,
-                region=region,
-                compute=True,
-            )
-
-        logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
-        for level in range(0, num_levels-1):
-            up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-            down_channel_arr = da.coarsen(
-                reduction=np.mean,
-                x=up_channel_arr,
-                axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-                trim_excess=True)
-            region = (slice(channel_index, channel_index+1),
-                    slice(None),
-                    slice(None),
-                    slice(None))
-            down_channel_arr = down_channel_arr.rechunk(image_arr.chunksize)
-            down_channel_arr.to_zarr(
-                url=zarr.open(str(new_zarr_path / str(level+1))), 
-                region=region, 
-                overwrite=True)
+            logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
+            for level in range(0, num_levels-1):
+                up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
+                down_channel_arr = da.coarsen(
+                    reduction=np.mean,
+                    x=up_channel_arr,
+                    axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
+                    trim_excess=True)
+                region = (slice(channel_index, channel_index+1),
+                        slice(None),
+                        slice(None),
+                        slice(None))
+                down_channel_arr = down_channel_arr.rechunk(image_arr.chunksize)
+                down_channel_arr.to_zarr(
+                    url=zarr.open(str(new_zarr_path / str(level+1))), 
+                    region=region, 
+                    overwrite=True)
     
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:

@@ -35,6 +35,35 @@ class FakeDaskArray:
 
     def to_zarr(self, *a, **k):
         return None
+    
+def mock_dask_distributed(
+    mocker,
+    module: str
+):
+    mocks = {}
+
+    # ---- Dask cluster CM
+    cluster_cm = mocker.MagicMock(name="cluster_cm")
+    fake_cluster = mocker.MagicMock(name="fake_cluster")
+    cluster_cm.__enter__.return_value = fake_cluster
+    cluster_cm.__exit__.return_value = None
+
+    mocks["cluster"] = mocker.patch(
+        module + "._set_dask_cluster",
+        return_value=cluster_cm,
+    )
+
+    # ---- Dask client CM
+    client_cm = mocker.MagicMock(name="client_cm")
+    fake_client = mocker.MagicMock(name="fake_client")
+    client_cm.__enter__.return_value = fake_client
+    client_cm.__exit__.return_value = None
+
+    mocks["client"] = mocker.patch(
+        module + ".Client",
+        return_value=client_cm,
+    )
+    return mocks
 
 @pytest.fixture
 def tmp_dataset(tmp_path):
@@ -85,6 +114,8 @@ def mock_mesospim_env(mocker):
         module + "._determine_optimal_contrast")
     mocks["write_meta"] = mocker.patch(
         module + ".write_ome_zarr_metadata")
+
+    mocks = mocks | mock_dask_distributed(mocker, module)
 
     return mocks
 
@@ -193,9 +224,11 @@ def mock_flatfield_env(
         np.concatenate(
             [x.arr if isinstance(x, FakeDaskArray) else x for x in xs],
             axis=axis
-        )
-    ),
-)
+            )
+        ),
+    )
+
+    mocks = mocks | mock_dask_distributed(mocker, module)
 
     return mocks
 
@@ -273,5 +306,7 @@ def mock_correct_illumination_env(
         module + ".da.coarsen")
     mocks["copy_tables"] = mocker.patch(
         module + "._copy_tables_from_zarr_url")
+    
+    mocks = mocks | mock_dask_distributed(mocker, module)
     
     return mocks

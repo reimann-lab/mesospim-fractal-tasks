@@ -298,44 +298,45 @@ def correct_illumination(
                                                 z_profile=z_profile)
 
     logger.info(f"Starting illumination correction...")
-    with Client(cluster) as client:
-        for i_ROI, idxs_ROI in enumerate(indices):
-            s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
-            region = (
-                slice(channel_index, channel_index + 1),
-                slice(s_z, e_z),
-                slice(s_y, e_y),
-                slice(s_x, e_x),
-            )
-            gain = gain_factors[f"ROI_{i_ROI}"]
-            corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
-                                            0, 65535).astype(np.uint16)
-            
-            # Write to disk
-            logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-            corrected_FOV.to_zarr(
-                url=zarr.open(str(new_zarr_path / "0")),
-                region=region,
-                compute=True,
-            )
+    with _set_dask_cluster() as cluster:
+        with Client(cluster) as client:
+            for i_ROI, idxs_ROI in enumerate(indices):
+                s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
+                region = (
+                    slice(channel_index, channel_index + 1),
+                    slice(s_z, e_z),
+                    slice(s_y, e_y),
+                    slice(s_x, e_x),
+                )
+                gain = gain_factors[f"ROI_{i_ROI}"]
+                corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
+                                                0, 65535).astype(np.uint16)
+                
+                # Write to disk
+                logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
+                corrected_FOV.to_zarr(
+                    url=zarr.open(str(new_zarr_path / "0")),
+                    region=region,
+                    compute=True,
+                )
 
-        logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
-        for level in range(0, num_levels-1):
-            up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-            down_channel_arr = da.coarsen(
-                reduction=np.mean,
-                x=up_channel_arr,
-                axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-                trim_excess=True)
-            region = (slice(channel_index, channel_index+1),
-                    slice(None),
-                    slice(None),
-                    slice(None))
-            down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
-            down_channel_arr.to_zarr(
-                url=zarr.open(str(new_zarr_path / str(level+1))), 
-                region=region, 
-                overwrite=True)
+            logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
+            for level in range(0, num_levels-1):
+                up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
+                down_channel_arr = da.coarsen(
+                    reduction=np.mean,
+                    x=up_channel_arr,
+                    axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
+                    trim_excess=True)
+                region = (slice(channel_index, channel_index+1),
+                        slice(None),
+                        slice(None),
+                        slice(None))
+                down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
+                down_channel_arr.to_zarr(
+                    url=zarr.open(str(new_zarr_path / str(level+1))), 
+                    region=region, 
+                    overwrite=True)
         
     # Copy NGFF metadata from the old zarr_url to the new zarr if needed
     if channel_index == 0:

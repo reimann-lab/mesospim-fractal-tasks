@@ -11,6 +11,11 @@ logger = logging.getLogger(__name__)
 class DimTuple(BaseModel):
     """
     Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.
+
+    Attributes:
+        z: Z dimension size.
+        y: Y dimension size.
+        x: X dimension size.
     """
     z: int | None
     y: int | None
@@ -28,9 +33,9 @@ class IlluminationModel(BaseModel):
     Illumination correction profiles.
 
     Attributes:
-        flatfield: Flatfield correction profile.
-        darkfield: Darkfield correction profile.
-        baseline: Baseline correction profile.
+        flatfield: Flatfield image profile.
+        darkfield: Darkfield image profile.
+        baseline: Baseline value of the image.
     """
     model_config = ConfigDict(
         arbitrary_types_allowed=True
@@ -78,17 +83,19 @@ class BaSiCPyModelParams(BaseModel):
     Advanced parameters for BaSiCPy illumination correction.
 
     Attributes:
-        autosegment: When not False, automatically segment the image before fitting.
-            When True, threshold_otsu from scikit-image is used and the brighter pixels 
-            are taken. When a callable is given, it is used as the segmentation 
-            function.
-        autosegment_margin: Margin of the segmentation mask to the thresholded region.
-        epsilon: Weight regularization term.
+        autosegment: When set to `True`, automatically segment the image before fitting.
+            A threshold method is used and only the brighter pixels of the image
+            are taken.
+        autosegment_margin: Only meaningful when autosegment=True. It sets the margin of 
+            the segmentation mask to the thresholded region. 
+        smoothness_flatfield: Increase to obtain a smoother flatfield image.
+        smoothness_darkfield: Increase to obtain a smoother darkfield image.
         get_darkfield: When True, will estimate the darkfield shading component.
-        max_workers: Maximum number of threads used for processing.
-        smoothness_darkfield: Weight of the darkfield term in the Lagrangian.
-        smoothness_flatfield: Weight of the flatfield term in the Lagrangian.
-        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy.
+        epsilon: Weight regularization term.
+        max_workers: Maximum number of threads used for processing. Increase for 
+            faster processing.
+        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy. If 
+            not set, there is no resizing of the image performed by BaSiCPy.
     """
     model_config = ConfigDict(
         arbitrary_types_allowed=True
@@ -101,5 +108,5 @@ class BaSiCPyModelParams(BaseModel):
     max_workers: int = 2
     smoothness_darkfield: float = 1.0
     smoothness_flatfield: float = 1.0
-    working_size: Optional[int | list[int]] = None
+    working_size: Optional[list[int]] = None
 

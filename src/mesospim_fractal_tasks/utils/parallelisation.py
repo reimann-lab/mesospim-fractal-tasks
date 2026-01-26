@@ -28,15 +28,15 @@ def _set_dask_cluster(
         cpus = os.cpu_count()
         if cpus is None:
             raise ValueError("Number of CPUs not found.")
-    
+
     if n_workers is None:
         n_workers = int(cpus)
     else:
-        min(n_workers, cpus)
+        min(n_workers, int(cpus))
 
     cluster = LocalCluster(
         n_workers=n_workers,
-        threads_per_worker=max(int(cpus / n_workers), 1),
+        threads_per_worker=max(int(int(cpus) / n_workers), 1),
         processes=True,
         dashboard_address=None,
         #silence_logs=logging.ERROR,

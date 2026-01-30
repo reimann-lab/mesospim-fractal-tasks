@@ -39,8 +39,8 @@ def stitch_with_multiview_stitcher(
     *,
     zarr_url: str,
     channel: StitchingChannelInputModel,
-    registration_resolution_level: int = 0,
-    registration_on_z_proj: bool = True,
+    registration_resolution_level: Optional[int] = None,
+    registration_on_z_proj: bool = False,
     registration_function: str = "phase_correlation",
     overlap_tolerance: DimTuple = DimTuple(z=0, y=0, x=0),
     transform_type: str = "translation",
@@ -54,31 +54,38 @@ def stitch_with_multiview_stitcher(
     in the FOV_ROI_table of the OME-Zarr image. Writes the
     fused image back to a "fused" group in the same Zarr array.
 
-   Parameters:
+    Parameters:
         zarr_url: Absolute path to the OME-Zarr image.
         channel: Channel for registration; requires either
-            `wavelength_id` (e.g. `A01_C01`) or `label` (e.g. `DAPI`), but not
+            `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not
             both.
         registration_resolution_level: Resolution level to use for registration.
+            Recommended to set the lowest level possible, e.g. 5 (highest is 0). 
+            If None, the lowest resolution level available will be used for registration.
+            Default: None.
         registration_on_z_proj: Whether to perform registration on a maximum
-            projection along z in case of 3D data. Recommended for large z step or when
-            there are empty tiles.
+            projection along z in case of 3D data. Recommended when memory is 
+            limited but results are generally less good. Default: False.
         registration_function: Type of transformation to use for registration.
             Available functions:
-            - 'phase_correlation': (default).
+            - 'phase_correlation'
             - 'antspy': see ANTsPy documentation for more information.
+            Default: 'phase_correlation'.
         overlap_tolerance:
-            Extend overlap regions considered for pairwise registration.
+            Extend overlap regions considered for pairwise registration. Currently, 
+            the overlap between tiles as referenced in the metadata is used. To go
+            beyond this, the following options are available:
             - if 0, the overlap region is the intersection of the tiles.
             - if > 0, the overlap region is the intersection of the tiles
                 extended by this value in the given spatial dimensions.
             Default: 0 for all dimensions.
         transform_type: Type of transformation to use for registration. 
             Available types:
-            - 'translation': translation (default)
+            - 'translation': translation 
             - 'rigid': rigid body transformation
             - 'similarity': similarity transformation
             - 'affine': affine transformation
+            Default: 'translation'.
         pre_registration_pruning_method: Method to use for selecting a subset
             of all overlapping tiles for pairwise registration. By default,
             only lower, upper, right and left neighbors are considered. Set
@@ -99,30 +106,33 @@ def stitch_with_multiview_stitcher(
                 e.g. when other methods fail.
         max_workers: Maximum number of workers to process blocks in parallel. Should not 
             be more than number of available workers. If set to one, it falls back to
-            sequential processing. Default: 1.
+            sequential processing. Default: 4.
         fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing 
             the fusion. It impacts the memory usage and the time to fuse the tiles. It 
-            also corresponds to the chunksize of the output zarr.
-            If None, the chunksize of the raw image is used.
+            also corresponds to the chunksize of the output zarr. Setting smaller chunks
+            can reduce memory usage but increase the time to fuse the tiles.
+            If None, the chunksize of the raw image is used. Default: None.
     """
 
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: `Stitching with Multiview Stitcher` "
+    logger.info(f"Starting task: `Stitching with Multiview Stitcher` "
                 f"for {zarr_path.parent}/{zarr_path.name}")
 
     # Parse and log several NGFF-image metadata attributes
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
+    num_levels = ngff_image_meta.num_levels
     fov_roi_table = ad.read_zarr(Path(zarr_path, "tables/FOV_ROI_table")).to_df()
     input_transform_key = "fractal_input"
 
     # Load FOVs for registration as spatial image
+    if registration_resolution_level is None:
+        registration_resolution_level = num_levels-1
     xim_well_reg = get_sim_from_multiscales(
         Path(zarr_url), resolution=registration_resolution_level
     )
     original_chunksize = xim_well_reg.data.chunksize
 
     # Determine whether to perform registration on maximum projection in Z
-    z_dim = xim_well_reg.shape[1]
     if registration_on_z_proj:
         xim_well_reg = xim_well_reg.max("z")
         overlap_tolerance = DimTuple(z=None, y=0, x=0)

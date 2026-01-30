@@ -166,7 +166,7 @@ def crop_regions_of_interest(
             `init_crop_regions_of_interest`.
     """
     zarr_path = Path(zarr_url)
-    logger.info(f"Start task: `Crop Region of Interest` "
+    logger.info(f"Starting task: `Crop Region of Interest` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
     
     cluster = _set_dask_cluster()

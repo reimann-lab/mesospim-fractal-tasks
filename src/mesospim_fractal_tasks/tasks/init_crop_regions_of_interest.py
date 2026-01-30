@@ -36,7 +36,7 @@ def init_crop_regions_of_interest(
             (standard argument for Fractal tasks, managed by Fractal server).
         crop_or_roi: Whether the coordinates are for a crop or a ROI. If `crop`, 
             the coordinates correspond to a crop of the full resolution image to remove
-            empty space for example. A cropped_image will be output with adapted
+            empty space for example. A cropped image will be output with adapted
             FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted.
             Default: `roi`.
         roi_table_name: Name/identifier of the ROI coordinates table to identify 
@@ -57,7 +57,7 @@ def init_crop_regions_of_interest(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
-    logger.info(f"Start task: `Crop Region of Interest (Initialisation)"
+    logger.info(f"Starting task: `Crop Region of Interest (Initialisation)"
                 f" for {zarr_path.parent.name}/{zarr_path.name}")
 
     logger.info("Loading ROI coordinates table.")

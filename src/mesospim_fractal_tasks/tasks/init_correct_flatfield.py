@@ -74,15 +74,16 @@ def init_correct_flatfield(
         zarr_dir: path of the directory where the new OME-Zarrs will be
             created. Present for compatibility, not used by this task.
             (standard argument for Fractal tasks, managed by Fractal server).
-        FOV_list: List of FOVs to process. If provided, illumination profiles will be 
-            computed from this list of FOVs without BaSiCPy. Default: None.
+        FOV_list: List of tiles to process. If provided, illumination profiles will be 
+            computed from this list of tiles without BaSiCPy. They are expected to 
+            contain only empty space. Default: None.
         z_levels: Two integers indicating the maximum number of z planes to process 
             at the top and bottom of the 3D tile stack. If provided, illumination 
             profiles will be computed using z planes up to the first number of z_levels 
-            at the bottom and down to the 2nd number of z_levels at the top of the FOVs 
+            at the bottom and down to the 2nd number of z_levels at the top of the tiles 
             (expecting empty FOVs) without BaSiCPy.
-            If FOV_list is not empty the subvolumes will be extracted from the FOVs 
-            in FOV_list, otherwise from the four corner FOVs. Default: None.
+            If FOV_list is not empty the subvolumes will be extracted from the tiles 
+            in FOV_list, otherwise from the four tiles at the corners. Default: None.
         save_models: If `True`, illumination profiles will be saved in the parent folder
             of the currently processed OME-Zarr. Default: False.
 

@@ -120,7 +120,7 @@ def compute_empty_fov_models(
 
 def compute_basicpy_models(
     FOV_data: da.Array,
-    advanced_basicpy_model_params: BaSiCPyModelParams,
+    basicpy_model_params: BaSiCPyModelParams,
     channel_label: str,
 ) -> IlluminationModel:
     """
@@ -128,7 +128,7 @@ def compute_basicpy_models(
 
     Parameters:
         FOV_data: Array of shape (n_ROIs, y_size, x_size) with the FOVs.
-        advanced_basicpy_model_params: Advanced parameters for the BaSiCPy model.
+        basicpy_model_params: Parameters for the BaSiCPy model.
     
     Returns:
         illum_profiles: IlluminationModel instance with the illumination 
@@ -138,14 +138,14 @@ def compute_basicpy_models(
     # calculate illumination correction profile
     logger.info(f"Start fitting BaSiCPy illumination model for channel {channel_label}...")
     basic = BaSiC(
-        autosegment=advanced_basicpy_model_params.autosegment,
-        autosegment_margin=advanced_basicpy_model_params.autosegment_margin,
-        epsilon=advanced_basicpy_model_params.epsilon,
-        get_darkfield=advanced_basicpy_model_params.get_darkfield,
-        max_workers=advanced_basicpy_model_params.max_workers,
-        smoothness_darkfield=advanced_basicpy_model_params.smoothness_darkfield,
-        smoothness_flatfield=advanced_basicpy_model_params.smoothness_flatfield,
-        working_size=advanced_basicpy_model_params.working_size
+        autosegment=basicpy_model_params.autosegment,
+        autosegment_margin=basicpy_model_params.autosegment_margin,
+        epsilon=basicpy_model_params.epsilon,
+        get_darkfield=basicpy_model_params.get_darkfield,
+        max_workers=basicpy_model_params.max_workers,
+        smoothness_darkfield=basicpy_model_params.smoothness_darkfield,
+        smoothness_flatfield=basicpy_model_params.smoothness_flatfield,
+        working_size=basicpy_model_params.working_size
     ) # type: ignore
 
     if FOV_data.shape[0] == 1:
@@ -401,7 +401,7 @@ def correct_flatfield(
     save_models: bool = False,
     resolution_level: Optional[int] = None,
     n_zplanes: int = 200,
-    advanced_basicpy_model_params: Optional[BaSiCPyModelParams] = Field(
+    basicpy_model_params: Optional[BaSiCPyModelParams] = Field(
         default_factory=BaSiCPyModelParams)
 ) -> dict[str, list]:
 
@@ -414,24 +414,27 @@ def correct_flatfield(
             (standard argument for Fractal tasks, managed by Fractal server).
         models_folder: Folder name where illumination
             profiles are stored and can be used to perform flatfield correction. 
-            If provided,fitting models is skipped. Default: None.
-        FOV_list: List of FOVs to process. If provided, illumination profiles will be 
-            computed from this list of FOVs without BaSiCPy. Default: None.
+            If provided, fitting models is skipped and only the correction step is
+            performed. Default: None.
+        FOV_list: List of tiles to process. If provided, illumination profiles will be 
+            computed from this list of tiles without BaSiCPy. They are expected to 
+            contain only empty space. Default: None.
         z_levels: Two integers indicating the maximum number of z planes to process 
             at the top and bottom of the 3D tile stack. If provided, illumination 
             profiles will be computed using z planes up to the first number of z_levels 
-            at the bottom and down to the 2nd number of z_levels at the top of the FOVs 
+            at the bottom and down to the 2nd number of z_levels at the top of the tiles 
             (expecting empty FOVs) without BaSiCPy.
-            If FOV_list is not empty the subvolumes will be extracted from the FOVs 
-            in FOV_list, otherwise from the four corner FOVs. Default: None.
+            If FOV_list is not empty the subvolumes will be extracted from the tiles 
+            in FOV_list, otherwise from the four tiles at the corners. Default: None.
         save_models: If `True`, illumination profiles will be saved in the parent folder
             of the currently processed OME-Zarr. Default: False.
         resolution_level: Resolution level at which to calculate the illumination
-            correction profiles. If None, the lowest resolution level will be used.
+            correction profiles. If None, the lowest resolution level will be used for BaSiCPy
+            and highest resolution level for empty FOVs. Default: None.
         n_zplanes: Number of z planes to use to calculate the illumination profile model.
             Greater number requires more memory. If using BaSiCPy, at least 150 is recommended
-            for a good fit. Default: 200.
-        advanced_basicpy_model_params: Advanced parameters for the BaSiC model. See documentation
+            for a good fit. If using empty FOVs, at least 50 is recommended. Default: 200.
+        basicpy_model_params: Parameters for the BaSiC model. See documentation
             for more information. Default: None.
     """
 
@@ -527,11 +530,11 @@ def correct_flatfield(
                             channel_label=channel,
                         )
                 else:
-                    if advanced_basicpy_model_params is None:
-                        advanced_basicpy_model_params = BaSiCPyModelParams()
+                    if basicpy_model_params is None:
+                        basicpy_model_params = BaSiCPyModelParams()
                     illum_profiles[channel] = compute_basicpy_models(
                         FOV_data=FOV_data,
-                        advanced_basicpy_model_params=advanced_basicpy_model_params,
+                        basicpy_model_params=basicpy_model_params,
                         channel_label=channel,
                     )
 
@@ -646,8 +649,8 @@ def correct_flatfield(
             models_folder=models_folder,
             resolution_level=resolution_level,
             n_zplanes=n_zplanes,
-            advanced_basicpy_model_params=get_non_default_params(
-                advanced_basicpy_model_params) if advanced_basicpy_model_params is not None else None,
+            basicpy_model_params=get_non_default_params(
+                basicpy_model_params) if basicpy_model_params is not None else None,
             FOV_list=FOV_list,
             z_levels=z_levels,
             save_models=save_models

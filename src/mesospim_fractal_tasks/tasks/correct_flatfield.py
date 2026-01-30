@@ -114,14 +114,14 @@ def compute_empty_fov_models(
 
 def compute_basicpy_models(
     FOV_data: da.Array,
-    advanced_basicpy_model_params: BaSiCPyModelParams,
+    basicpy_model_params: BaSiCPyModelParams,
 ) -> IlluminationModel:
     """
     Calculates illumination correction profiles based on a provided sample of FOVs.
 
     Parameters:
         FOV_data: Array of shape (n_ROIs, y_size, x_size) with the FOVs.
-        advanced_basicpy_model_params: Advanced parameters for the BaSiCPy model.
+        basicpy_model_params: Parameters for the BaSiCPy model.
     
     Returns:
         illum_profiles: IlluminationModel instance with the illumination 
@@ -131,28 +131,14 @@ def compute_basicpy_models(
     # calculate illumination correction profile
     logger.info(f"Start fitting BaSiCPy illumination model...")
     basic = BaSiC(
-        autosegment=advanced_basicpy_model_params.autosegment,
-        autosegment_margin=advanced_basicpy_model_params.autosegment_margin,
-        epsilon=advanced_basicpy_model_params.epsilon,
-        fitting_mode=advanced_basicpy_model_params.fitting_mode,
-        get_darkfield=advanced_basicpy_model_params.get_darkfield,
-        max_iterations=advanced_basicpy_model_params.max_iterations,
-        max_mu_coef=advanced_basicpy_model_params.max_mu_coef,
-        max_reweight_iterations=advanced_basicpy_model_params.max_reweight_iterations,
-        max_reweight_iterations_baseline= \
-        advanced_basicpy_model_params.max_reweight_iterations_baseline,
-        max_workers=advanced_basicpy_model_params.max_workers,
-        mu_coef=advanced_basicpy_model_params.mu_coef,
-        optimization_tol=advanced_basicpy_model_params.optimization_tol,
-        optimization_tol_diff=advanced_basicpy_model_params.optimization_tol_diff,
-        resize_mode=advanced_basicpy_model_params.resize_mode,
-        reweighting_tol=advanced_basicpy_model_params.reweighting_tol,
-        rho=advanced_basicpy_model_params.rho,
-        smoothness_darkfield=advanced_basicpy_model_params.smoothness_darkfield,
-        smoothness_flatfield=advanced_basicpy_model_params.smoothness_flatfield,
-        sort_intensity=advanced_basicpy_model_params.sort_intensity,
-        sparse_cost_darkfield=advanced_basicpy_model_params.sparse_cost_darkfield,
-        working_size=advanced_basicpy_model_params.working_size
+        autosegment=basicpy_model_params.autosegment,
+        autosegment_margin=basicpy_model_params.autosegment_margin,
+        epsilon=basicpy_model_params.epsilon,
+        get_darkfield=basicpy_model_params.get_darkfield,
+        max_workers=basicpy_model_params.max_workers,
+        smoothness_darkfield=basicpy_model_params.smoothness_darkfield,
+        smoothness_flatfield=basicpy_model_params.smoothness_flatfield,
+        working_size=basicpy_model_params.working_size
     ) # type: ignore
 
     if FOV_data.shape[0] == 1:
@@ -382,8 +368,7 @@ def correct_flatfield(
     models_folder: Optional[str] = None,
     resolution_level: Optional[int] = None,
     n_zplanes: int = 200,
-    advanced_basicpy_model_params: Optional[BaSiCPyModelParams] = None,
-    input_ROI_table: str = "FOV_ROI_table",
+    basicpy_model_params: Optional[BaSiCPyModelParams] = None
 ) -> dict[str, list]:
 
     """
@@ -393,26 +378,20 @@ def correct_flatfield(
     Parameters:
         zarr_url: Path or url to the individual OME-Zarr image to be processed.
             (standard argument for Fractal tasks, managed by Fractal server).
-        init_args: Intialization arguments provided by
-            `init_calculate_basicpy_illumination_models`.
         models_folder: Folder name where illumination
-            profiles are to be used to perform flatfield correction. If provided,
-            fitting BaSiCPy models is skipped.
+            profiles are stored and can be used to perform flatfield correction. 
+            If provided, fitting models is skipped and only the correction step is
+            performed. Default: None.
         resolution_level: Resolution level at which to calculate the illumination
-            correction profiles. If None, the lowest resolution level will be used.
-        n_zplanes: Number of z planes to use to calculate BaSiCPy model (Default: 200).
-        advanced_basicpy_model_params: Advanced parameters for the BaSiC model. 
-        input_ROI_table: 
-            Name of the ROI table that contains the information
-            about the location of the individual field of views (FOVs) to
-            which the illumination correction shall be applied. Defaults to
-            "FOV_ROI_table", the default name Fractal converters give the ROI
-            tables that list all FOVs separately. If you generated your
-            OME-Zarr with a different converter and used Import OME-Zarr to
-            generate the ROI tables, `image_ROI_table` is the right choice if
-            you only have 1 FOV per Zarr image and `grid_ROI_table` if you
-            have multiple FOVs per Zarr image and set the right grid options
-            during import.
+            correction profiles. If None, the lowest resolution level will be used for BaSiCPy
+            and highest resolution level for empty FOVs. Default: None.
+        n_zplanes: Number of z planes to use to calculate the illumination profile model.
+            Greater number requires more memory. If using BaSiCPy, at least 150 is recommended
+            for a good fit. If using empty FOVs, at least 50 is recommended. If the result 
+            is not satisfactory try to increase this number. If memory overflows, 
+            try to decrease this number. Default: 200.
+        basicpy_model_params: Parameters for the BaSiC model. See documentation
+            for more information. Default: None.
     """
 
     zarr_path = Path(zarr_url)
@@ -461,11 +440,11 @@ def correct_flatfield(
                         FOV_data=FOV_data,
                     )
             else:
-                if advanced_basicpy_model_params is None:
-                        advanced_basicpy_model_params = BaSiCPyModelParams()
+                if basicpy_model_params is None:
+                        basicpy_model_params = BaSiCPyModelParams()
                 illum_profiles = compute_basicpy_models(
                     FOV_data=FOV_data,
-                    advanced_basicpy_model_params=advanced_basicpy_model_params,
+                    basicpy_model_params=basicpy_model_params,
                 )
 
             if init_args["saving_path"] is not None:
@@ -494,7 +473,7 @@ def correct_flatfield(
             illum_profiles.flatfield = profiles["flatfield"]
 
         # Read FOV ROIs
-        FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", input_ROI_table))
+        FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
 
         # Create list of indices for 3D FOVs spanning the entire Z direction
         list_indices = convert_ROI_table_to_indices(
@@ -602,9 +581,8 @@ def correct_flatfield(
                 models_folder=models_folder,
                 resolution_level=resolution_level,
                 n_zplanes=n_zplanes,
-                advanced_basicpy_model_params=get_non_default_params(
-                    advanced_basicpy_model_params) if advanced_basicpy_model_params is not None else None,
-                input_ROI_table=input_ROI_table,
+                basicpy_model_params=get_non_default_params(
+                    basicpy_model_params) if basicpy_model_params is not None else None,
                 FOV_list=init_args["FOV_list"],
                 z_levels=init_args["z_levels"],
                 saving_path=init_args["saving_path"]

@@ -241,6 +241,22 @@ def correct_illumination(
     init_args: Dict[str, Any],
     z_correction: bool = False,
 ) -> dict[str, Any]:
+    """
+    Perform a global illumination correction on a multi-channel OME-Zarr image. 
+
+    The task estimates correction coefficients per tile to normalize the global illumination 
+    across all tiles. Additionally, it can perform a z-correction to compensate for 
+    Z band artifacts.
+
+    Parameters:
+        zarr_url (str): Path or url to the individual OME-Zarr image to be processed.
+            (standard argument for Fractal tasks, managed by Fractal server).
+        init_args (dict): The initialization arguments for the task.
+        z_correction (bool): Whether to correct for Z band artifacts.
+
+    Returns:
+        dict: A dictionary containing the updated image list.
+    """
     
     cluster = _set_dask_cluster()
 

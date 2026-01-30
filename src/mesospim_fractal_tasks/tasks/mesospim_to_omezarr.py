@@ -80,6 +80,8 @@ def write_ome_zarr_metadata(
     user_channels_path: str = "default",
 ) -> None:
     """
+    Write OME-Zarr metadata to the provided Zarr group.
+
     Parameters: 
         zarr_group (zarr.Group): Zarr group to write metadata into.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
@@ -766,11 +768,11 @@ def mesospim_to_omezarr(
     exclusion_list: list[int] = [],
     num_levels: int = 6,
     coarsening_factor: int = 2,
-    chunksize: tuple[int, int, int] = (32, 1024, 1024),
-    overwrite: bool = True
+    chunksize: tuple[int, int, int] = (64, 1024, 1024),
+    overwrite: bool = False
 ) -> dict[str, Any]:
     """
-    Convert mesoSPIM data (TIFFs or H5) to OME-NGFF zarr array.
+    Convert mesoSPIM data (TIFFs or H5) to an OME-Zarr.
 
     Parameters:
         zarr_dir (str): Path of the directory where the new OME-ZARR will be created. 
@@ -783,27 +785,30 @@ def mesospim_to_omezarr(
         zarr_name (Optional[str]): Name of the OME-Zarr to create/open. If not provided,
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
-            overwriting or not of the image if it exists.
+            overwriting or not of the image if it exists. Default: None.
         image_name (Optional[str]): Name of the new image to be created. 
             Default: 'raw_image'.
         metadata_file (Optional[str]): Name of the metadata file. It is expected to be
             in the same folder as the acquisition files. Note: if not provided,
-            a _meta.txt will be searched using the provided pattern.
+            a _meta.txt will be searched using the provided pattern. Default: None.
         channel_color_file (str): Path to a JSON file or keyword identifying the JSON 
             file among provided defaults containing the channel colors information. 
             Default: "default".
         exclusion_list (list[int]): List of tiles to exclude from being converted, e.g.
-            empty signal tiles.
+            empty signal tiles. Default: [].
         num_levels (int): Number of pyramid levels (including the full resolution level, 
-            so if no pyramid, then num_levels=1).
+            so if you want no pyramid, then num_levels=1). For a 1Tb dataset, it is 
+            recommended to have at least num_levels=6. Default: 6.
         chunksize (tuple[int, int, int]): Chunk size to use for the OME-Zarr image.
-            Default: (32, 1024, 1024).
-        coarsening_factor (int): Coarsening factor to apply to the pyramid. Default: 2.
-        overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. 
-            Default: True.
+            Default: (64, 1024, 1024).
+        coarsening_factor (int): Coarsening factor to apply to the pyramid. New pyramid
+            resolution level will have an image with X/Y axis size divided by this factor. 
+            Default: 2.
+        overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. It will
+            not overwrite the OME-Zarr folder if it already exists. Default: False.
 
     Returns:
-        None
+        dict: A dictionary containing the updated image list.
     """
     logger.info(f"Start task: `MesoSPIM to OME-Zarr`. "
                 f"Zarr Directory set to: {zarr_dir}")
@@ -893,7 +898,8 @@ def mesospim_to_omezarr(
         contrast_limits=contrast_limits,
         input_param=dict(pattern=pattern, 
                          extension=extension, 
-                         metadata_file=metadata_file, 
+                         metadata_file=metadata_file,
+                         source_file=metadata_path.name.replace("_meta.txt", ""), 
                          exclusion_list=exclusion_list),
         user_channels_path=channel_color_file
     )

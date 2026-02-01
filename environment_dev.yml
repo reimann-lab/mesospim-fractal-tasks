@@ -36,7 +36,8 @@ dependencies:
   - pip:
       - ngio>=0.2.1
       - fractal-task-tools==0.0.12
-      - fractal-tasks-core==1.5.3
+      - fractal-tasks-core==1.5.4
       - multiview-stitcher==0.1.40
       - napari-ome-zarr-navigator
+      #- napari-crop-tool
       - -e . # If installing the package locally during development

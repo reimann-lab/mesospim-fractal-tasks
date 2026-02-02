@@ -3,7 +3,8 @@ from pathlib import Path
 import json
 import typer
 
-app = typer.Typer()
+get_app = typer.Typer()
+set_app = typer.Typer()
 
 def copy_run_templates():
     """
@@ -86,7 +87,7 @@ def set_channel_setting(
 
     print("Done! The new setting can now be used during conversion.")
 
-@app.command()
+@set_app.command()
 def set_channel_setting_parser(
     json_file: str = typer.Argument(..., help="Path to JSON file."),
     setting_name: str = typer.Option("default", help="Name for this channel setting.")
@@ -97,4 +98,53 @@ def set_channel_setting_parser(
     set_channel_setting(json_file, setting_name)
 
 def set_channel_setting_cli():
-    app()
+    set_app()
+
+def get_channel_keys(
+) -> None:
+    """
+    Display the available channel settings keys.
+    """
+    src = Path(__file__).parents[1] / "settings"
+
+    print("Available channel settings keys:")
+    for i, file in enumerate(src.glob("*.json")):
+        file_name_parts = file.name.split("_")
+        print((f"Key {i}: {file_name_parts[2].replace('.json', '')}"))
+
+def get_channel_key(
+    key: str
+) -> None:
+    """
+    Display nicely the channel settings for a given key.
+    """
+    src = Path(__file__).parents[1] / "settings" / f"channel_color_{key}.json"
+    print(key)
+
+    if not src.exists():
+        raise RuntimeError(f"Channel settings not found: {src}")
+
+    with open(src, "r") as f:
+        channel_settings = json.load(f)
+
+    print(f"Channel settings for key {key}:")
+    for key, item in channel_settings.items():
+        print(f"{    key}:")
+        for k, v in item.items():
+            print(f"    {k}: {v}")
+
+@get_app.command()
+def get_channel_key_parser(
+    key: str = typer.Argument(..., help="Key for the channel settings.")
+):
+    """
+    Set a JSON channel settings file as a named template for conversion.
+    """
+    get_channel_key(key)
+
+def get_channel_key_cli(
+):
+    """
+    Set a JSON channel settings file as a named template for conversion.
+    """
+    get_app()

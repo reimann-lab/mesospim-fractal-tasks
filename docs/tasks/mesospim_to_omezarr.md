@@ -127,7 +127,7 @@ Here is the procedure to view the current available default settings:
 
         get-channel-keys
 
-    This will print the available channel keys.
+    This will print the available channel keys, e.g. the identifiers for the channel color settings.
 
 2. View a given channel setting
 

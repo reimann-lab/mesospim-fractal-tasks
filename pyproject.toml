@@ -99,6 +99,8 @@ napari = [
 copy-run-templates = "mesospim_fractal_tasks.cli.manage_templates:copy_run_templates"
 copy-channel-template = "mesospim_fractal_tasks.manage_templates.cli:copy_channel_template"
 set-channel-setting = "mesospim_fractal_tasks.cli.manage_templates:set_channel_setting_cli"
+get-channel-keys = "mesospim_fractal_tasks.cli.manage_templates:get_channel_keys"
+get-channel-setting = "mesospim_fractal_tasks.cli.manage_templates:get_channel_key_cli"
 
 
 # https://docs.astral.sh/ruff

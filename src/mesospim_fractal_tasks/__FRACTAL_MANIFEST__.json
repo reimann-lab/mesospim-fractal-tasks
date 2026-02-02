@@ -39,7 +39,7 @@
           "zarr_name": {
             "title": "Zarr Name",
             "type": "string",
-            "description": "Name of the OME-Zarr to create/open. If not provided, the name of the dataset directory will be used. If the OME-Zarr already exists, the new image will be appended. The `overwrite` argument handles the overwriting or not of the image if it exists."
+            "description": "Name of the OME-Zarr to create/open. If not provided, the name of the dataset directory will be used. If the OME-Zarr already exists, the new image will be appended. The `overwrite` argument handles the overwriting or not of the image if it exists. Default: None."
           },
           "image_name": {
             "title": "Image Name",
@@ -49,7 +49,7 @@
           "metadata_file": {
             "title": "Metadata File",
             "type": "string",
-            "description": "Name of the metadata file. It is expected to be in the same folder as the acquisition files. Note: if not provided, a _meta.txt will be searched using the provided pattern."
+            "description": "Name of the metadata file. It is expected to be in the same folder as the acquisition files. Note: if not provided, a _meta.txt will be searched using the provided pattern. Default: None."
           },
           "channel_color_file": {
             "default": "default",
@@ -64,23 +64,23 @@
             },
             "title": "Exclusion List",
             "type": "array",
-            "description": "List of tiles to exclude from being converted, e.g. empty signal tiles."
+            "description": "List of tiles to exclude from being converted, e.g. empty signal tiles. Default: []."
           },
           "num_levels": {
             "default": 6,
             "title": "Num Levels",
             "type": "integer",
-            "description": "Number of pyramid levels (including the full resolution level, so if no pyramid, then num_levels=1)."
+            "description": "Number of pyramid levels (including the full resolution level, so if you want no pyramid, then num_levels=1). For a 1Tb dataset, it is recommended to have at least num_levels=6. Default: 6."
           },
           "coarsening_factor": {
             "default": 2,
             "title": "Coarsening Factor",
             "type": "integer",
-            "description": "Coarsening factor to apply to the pyramid. Default: 2."
+            "description": "Coarsening factor to apply to the pyramid. New pyramid resolution level will have an image with X/Y axis size divided by this factor. Default: 2."
           },
           "chunksize": {
             "default": [
-              32,
+              64,
               1024,
               1024
             ],
@@ -99,13 +99,13 @@
             ],
             "title": "Chunksize",
             "type": "array",
-            "description": "Chunk size to use for the OME-Zarr image. Default: (32, 1024, 1024)."
+            "description": "Chunk size to use for the OME-Zarr image. Default: (64, 1024, 1024)."
           },
           "overwrite": {
-            "default": true,
+            "default": false,
             "title": "Overwrite",
             "type": "boolean",
-            "description": "Whether to overwrite OME-Zarr image if it already exists. Default: True."
+            "description": "Whether to overwrite OME-Zarr image if it already exists. It will not overwrite the OME-Zarr folder if it already exists. Default: False."
           }
         },
         "required": [
@@ -114,7 +114,7 @@
         "type": "object",
         "title": "MesospimToOmezarr"
       },
-      "docs_info": "## mesospim_to_omezarr\nConvert mesoSPIM data (TIFFs or H5) to OME-NGFF zarr array.\n"
+      "docs_info": "## mesospim_to_omezarr\nConvert mesoSPIM data (TIFFs or H5) to an OME-Zarr.\n"
     },
     {
       "name": "Perform Flatfield Correction",
@@ -162,7 +162,7 @@
             },
             "title": "Fov List",
             "type": "array",
-            "description": "List of FOVs to process. If provided, illumination profiles will be computed from this list of FOVs without BaSiCPy. Default: None."
+            "description": "List of tiles to process. If provided, illumination profiles will be computed from this list of tiles without BaSiCPy. They are expected to contain only empty space. Default: None."
           },
           "z_levels": {
             "items": {
@@ -170,7 +170,7 @@
             },
             "title": "Z Levels",
             "type": "array",
-            "description": "Two integers indicating the maximum number of z planes to process at the top and bottom of the 3D tile stack. If provided, illumination profiles will be computed using z planes up to the first number of z_levels at the bottom and down to the 2nd number of z_levels at the top of the FOVs (expecting empty FOVs) without BaSiCPy. If FOV_list is not empty the subvolumes will be extracted from the FOVs in FOV_list, otherwise from the four corner FOVs. Default: None."
+            "description": "Two integers indicating the maximum number of z planes to process at the top and bottom of the 3D tile stack. If provided, illumination profiles will be computed using z planes up to the first number of z_levels at the bottom and down to the 2nd number of z_levels at the top of the tiles (expecting empty FOVs) without BaSiCPy. If FOV_list is not empty the subvolumes will be extracted from the tiles in FOV_list, otherwise from the four tiles at the corners. Default: None."
           },
           "save_models": {
             "default": false,
@@ -256,38 +256,32 @@
           "init_args": {
             "title": "Init Args",
             "type": "object",
-            "description": "Intialization arguments provided by `init_calculate_basicpy_illumination_models`."
+            "description": "Missing description"
           },
           "models_folder": {
             "title": "Models Folder",
             "type": "string",
-            "description": "Folder name where illumination profiles are to be used to perform flatfield correction. If provided, fitting BaSiCPy models is skipped."
+            "description": "Folder name where illumination profiles are stored and can be used to perform flatfield correction. If provided, fitting models is skipped and only the correction step is performed. Default: None."
           },
           "resolution_level": {
             "title": "Resolution Level",
             "type": "integer",
-            "description": "Resolution level at which to calculate the illumination correction profiles. If None, the lowest resolution level will be used."
+            "description": "Resolution level at which to calculate the illumination correction profiles. If None, the lowest resolution level will be used for BaSiCPy and highest resolution level for empty FOVs. Default: None."
           },
           "n_zplanes": {
             "default": 200,
             "title": "N Zplanes",
             "type": "integer",
-            "description": "Number of z planes to use to calculate BaSiCPy model (Default: 200)."
+            "description": "Number of z planes to use to calculate the illumination profile model. Greater number requires more memory. If using BaSiCPy, at least 150 is recommended for a good fit. If using empty FOVs, at least 50 is recommended. If the result is not satisfactory try to increase this number. If memory overflows, try to decrease this number. Default: 200."
           },
-          "advanced_basicpy_model_params": {
+          "basicpy_model_params": {
             "allOf": [
               {
                 "$ref": "#/$defs/BaSiCPyModelParams"
               }
             ],
-            "title": "Advanced Basicpy Model Params",
-            "description": "Advanced parameters for the BaSiC model. "
-          },
-          "input_ROI_table": {
-            "default": "FOV_ROI_table",
-            "title": "Input Roi Table",
-            "type": "string",
-            "description": "Name of the ROI table that contains the information about the location of the individual field of views (FOVs) to which the illumination correction shall be applied. Defaults to \"FOV_ROI_table\", the default name Fractal converters give the ROI tables that list all FOVs separately. If you generated your OME-Zarr with a different converter and used Import OME-Zarr to generate the ROI tables, `image_ROI_table` is the right choice if you only have 1 FOV per Zarr image and `grid_ROI_table` if you have multiple FOVs per Zarr image and set the right grid options during import."
+            "title": "Basicpy Model Params",
+            "description": "Parameters for the BaSiC model. See documentation for more information. Default: None."
           }
         },
         "required": [
@@ -354,18 +348,18 @@
           "zarr_url": {
             "title": "Zarr Url",
             "type": "string",
-            "description": "Missing description"
+            "description": "Path or url to the individual OME-Zarr image to be processed. (standard argument for Fractal tasks, managed by Fractal server)."
           },
           "init_args": {
             "title": "Init Args",
             "type": "object",
-            "description": "Missing description"
+            "description": "The initialization arguments for the task."
           },
           "z_correction": {
             "default": false,
             "title": "Z Correction",
             "type": "boolean",
-            "description": "Missing description"
+            "description": "Whether to correct for Z band artifacts."
           }
         },
         "required": [
@@ -375,7 +369,7 @@
         "type": "object",
         "title": "CorrectIllumination"
       },
-      "docs_info": "## init_correct_illumination\nInitializes illumination correction task.\n## correct_illumination\n\n"
+      "docs_info": "## init_correct_illumination\nInitializes illumination correction task.\n## correct_illumination\nPerform a global illumination correction on a multi-channel OME-Zarr image. \n\nThe task estimates correction coefficients per tile to normalize the global illumination \nacross all tiles. Additionally, it can perform a z-correction to compensate for \nZ band artifacts.\n"
     },
     {
       "name": "Crop Regions of Interest",
@@ -412,7 +406,7 @@
             "default": "roi",
             "title": "Crop Or Roi",
             "type": "string",
-            "description": "Whether the coordinates are for a crop or a ROI. If `crop`, the coordinates correspond to a crop of the full resolution image to remove empty space for example. A cropped_image will be output with adapted FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted. Default: `roi`."
+            "description": "Whether the coordinates are for a crop or a ROI. If `crop`, the coordinates correspond to a crop of the full resolution image to remove empty space for example. A cropped image will be output with adapted FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted. Default: `roi`."
           },
           "roi_table_name": {
             "title": "Roi Table Name",
@@ -534,25 +528,24 @@
           "channel": {
             "$ref": "#/$defs/StitchingChannelInputModel",
             "title": "Channel",
-            "description": "Channel for registration; requires either `wavelength_id` (e.g. `A01_C01`) or `label` (e.g. `DAPI`), but not both."
+            "description": "Channel for registration; requires either `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not both."
           },
           "registration_resolution_level": {
-            "default": 0,
             "title": "Registration Resolution Level",
             "type": "integer",
-            "description": "Resolution level to use for registration."
+            "description": "Resolution level to use for registration. Recommended to set the lowest level possible, e.g. 5 (highest is 0). If None, the lowest resolution level available will be used for registration. Default: None."
           },
           "registration_on_z_proj": {
-            "default": true,
+            "default": false,
             "title": "Registration On Z Proj",
             "type": "boolean",
-            "description": "Whether to perform registration on a maximum projection along z in case of 3D data. Recommended for large z step or when there are empty tiles."
+            "description": "Whether to perform registration on a maximum projection along z in case of 3D data. Recommended when memory is limited but results are generally less good. Default: False."
           },
           "registration_function": {
             "default": "phase_correlation",
             "title": "Registration Function",
             "type": "string",
-            "description": "Type of transformation to use for registration. Available functions: - 'phase_correlation': (default). - 'antspy': see ANTsPy documentation for more information."
+            "description": "Type of transformation to use for registration. Available functions: - 'phase_correlation' - 'antspy': see ANTsPy documentation for more information. Default: 'phase_correlation'."
           },
           "overlap_tolerance": {
             "allOf": [
@@ -566,13 +559,13 @@
               "x": 0
             },
             "title": "Overlap Tolerance",
-            "description": "Extend overlap regions considered for pairwise registration. - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
+            "description": "Extend overlap regions considered for pairwise registration. Currently, the overlap between tiles as referenced in the metadata is used. To go beyond this, the following options are available: - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
           },
           "transform_type": {
             "default": "translation",
             "title": "Transform Type",
             "type": "string",
-            "description": "Type of transformation to use for registration. Available types: - 'translation': translation (default) - 'rigid': rigid body transformation - 'similarity': similarity transformation - 'affine': affine transformation"
+            "description": "Type of transformation to use for registration. Available types: - 'translation': translation - 'rigid': rigid body transformation - 'similarity': similarity transformation - 'affine': affine transformation Default: 'translation'."
           },
           "pre_registration_pruning_method": {
             "default": "keep_axis_aligned",
@@ -584,7 +577,7 @@
             "default": 4,
             "title": "Max Workers",
             "type": "integer",
-            "description": "Maximum number of workers to process blocks in parallel. Should not be more than number of available workers. If set to one, it falls back to sequential processing. Default: 1."
+            "description": "Maximum number of workers to process blocks in parallel. Should not be more than number of available workers. If set to one, it falls back to sequential processing. Default: 4."
           },
           "fusion_chunksize": {
             "allOf": [
@@ -593,7 +586,7 @@
               }
             ],
             "title": "Fusion Chunksize",
-            "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. It also corresponds to the chunksize of the output zarr. If None, the chunksize of the raw image is used."
+            "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. It also corresponds to the chunksize of the output zarr. Setting smaller chunks can reduce memory usage but increase the time to fuse the tiles. If None, the chunksize of the raw image is used. Default: None."
           }
         },
         "required": [
@@ -603,7 +596,7 @@
         "type": "object",
         "title": "StitchWithMultiviewStitcher"
       },
-      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\n in the FOV_ROI_table of the OME-Zarr image. Writes the\n fused image back to a \"fused\" group in the same Zarr array.\n"
+      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n"
     }
   ],
   "has_args_schemas": true,

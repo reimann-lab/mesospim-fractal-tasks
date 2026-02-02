@@ -55,6 +55,11 @@ nav:
 
 plugins:
   - search
+  #- offline
+  #- print-site:
+  #    add_table_of_contents: true
+  #    toc_depth: 3
+  #    toc_title: "Index"
   - mkdocstrings:
       handlers:
         python:

@@ -6,7 +6,7 @@ dependencies:
   - python>=3.11,<3.13
   - numpy
   - scipy
-  - pandas
+  - pandas<3
   - scikit-image
   - tifffile
   - h5py
@@ -19,4 +19,4 @@ dependencies:
     - fractal-task-tools==0.0.12
     - fractal-tasks-core==1.5.4
     - multiview-stitcher==0.1.40
-    - .
+    #- . # If installing the package locally from git repository

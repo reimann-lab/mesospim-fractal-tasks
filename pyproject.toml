@@ -59,7 +59,7 @@ dependencies = [
     "scikit-image", 
     "scipy",
     "zarr<3",
-    "pandas",
+    "pandas<3",
     "numpy", 
     "fractal-task-tools==0.0.12", 
     "fractal-tasks-core==1.5.4",

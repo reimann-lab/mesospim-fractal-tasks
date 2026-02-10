@@ -174,18 +174,18 @@ def save_roi_parallel(
         crop_or_roi (str): Whether the ROI is a crop or a ROI.
     """
     full_shape = full_res_arr.shape
-    z_start, z_end = check_binary_compatibility(max(coords['z_start_um'], 0),
-                                                    coords['z_end_um'] + scale[0],
+    z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
+                                                    coords['z_end'] + scale[0],
                                                     full_shape[1], # type: ignore
                                                     scale[0], 
                                                     power=0)
-    y_start, y_end = check_binary_compatibility(max(coords['y_start_um'], 0),
-                                                    coords['y_end_um'] + scale[1], 
+    y_start, y_end = check_binary_compatibility(max(coords['y_start'], 0),
+                                                    coords['y_end'] + scale[1], 
                                                     full_shape[2], # type: ignore
                                                     scale[1],
                                                     power=num_levels)
-    x_start, x_end = check_binary_compatibility(max(coords['x_start_um'], 0),
-                                                    coords['x_end_um'] + scale[2],
+    x_start, x_end = check_binary_compatibility(max(coords['x_start'], 0),
+                                                    coords['x_end'] + scale[2],
                                                     full_shape[3], # type: ignore
                                                     scale[2],
                                                     power=num_levels)
@@ -228,12 +228,12 @@ def save_roi_parallel(
     roi_group.attrs["crop_info"] = {
         "roi_id": id,
         "crop_coordinates": {
-            "z_start_um": coords['z_start_um'],
-            "z_end_um": coords['z_end_um'],
-            "y_start_um": coords['y_start_um'],
-            "y_end_um": coords['y_end_um'],
-            "x_start_um": coords['x_start_um'],
-            "x_end_um": coords['x_end_um']
+            "z_start_um": coords['z_start'],
+            "z_end_um": coords['z_end'],
+            "y_start_um": coords['y_start'],
+            "y_end_um": coords['y_end'],
+            "x_start_um": coords['x_start'],
+            "x_end_um": coords['x_end']
         },
         "origin": f"{zarr_path.name}"
     }

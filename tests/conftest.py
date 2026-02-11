@@ -84,6 +84,7 @@ def h5_txt_metadata(tmp_dataset):
     p.write_text("dummy")
     return p
 
+
 @pytest.fixture
 def meta_df():
     return pd.DataFrame({
@@ -114,6 +115,10 @@ def mock_mesospim_env(mocker):
         module + "._determine_optimal_contrast")
     mocks["write_meta"] = mocker.patch(
         module + ".write_ome_zarr_metadata")
+    mocks["find_metadata_file"] = mocker.patch(
+        module + ".find_metadata_file")
+    mocks["find_raw_image_files"] = mocker.patch(
+        module + ".find_raw_image_files")
 
     mocks = mocks | mock_dask_distributed(mocker, module)
 

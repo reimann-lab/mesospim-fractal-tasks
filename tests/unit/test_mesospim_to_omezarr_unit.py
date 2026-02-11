@@ -6,7 +6,9 @@ from mesospim_fractal_tasks.tasks.mesospim_to_omezarr import (
     convert_tiff,
     convert_raw,
     load_channel_colors,
-    write_ome_zarr_metadata
+    write_ome_zarr_metadata,
+    find_metadata_file,
+    find_raw_image_files
 )
 import zarr
 import pytest
@@ -102,40 +104,172 @@ def test_metadata_file_provided_and_missing(
             metadata_file="nope.txt",
         )
 
-def test_metadata_autodiscovery_single_file(
-    tmp_dataset, 
-    h5_txt_metadata, 
-    mock_mesospim_env
+def test_raw_image_file_discovery(
+    tmp_dataset
 ):
-    mock_read = mock_mesospim_env["read_metadata"]
+    h5_path = tmp_dataset / f"image_0001.h5"
+    h5_path.touch()
+    for i in range(2):
+        tif_path = tmp_dataset / f"image_0001_ch{i}.tif"
+        tif_path.touch()
+    raw_path = tmp_dataset / f"image_0001.raw"
+    raw_path.touch()
 
-    mesospim_to_omezarr(
+    # Test with h5 extension
+    paths = find_raw_image_files(
         zarr_dir=str(tmp_dataset),
         pattern="image",
-        metadata_file=None,
+        extension="h5"
     )
+    assert len(paths) == 1
+    assert paths[0] == h5_path
 
-    used_path = mock_read.call_args[0][0]
-    assert used_path.name == "image_0001.h5_meta.txt"
+    # Test with tif extension
+    paths = find_raw_image_files(
+        zarr_dir=str(tmp_dataset),
+        pattern="image",
+        extension="tif"
+    )
+    assert len(paths) == 2
 
-def test_metadata_autodiscovery_no_match(
+    # Test with raw extension
+    paths = find_raw_image_files(
+        zarr_dir=str(tmp_dataset),
+        pattern="image",
+        extension="raw"
+    )
+    assert len(paths) == 1
+    assert paths[0] == raw_path
+
+    # Test with unsupported extension
+    with pytest.raises(ValueError):
+        find_raw_image_files(
+            zarr_dir=str(tmp_dataset),
+            pattern="image",
+            extension="foo"
+        )
+
+def test_raw_image_multiple_h5(
+    tmp_dataset
+):
+    h5_path = tmp_dataset / f"image_0001.h5"
+    h5_path.touch()
+    h5_path = tmp_dataset / f"image_0002.h5"
+    h5_path.touch()
+    
+    with pytest.raises(FileNotFoundError):
+        raw_paths = find_raw_image_files(
+            zarr_dir=str(tmp_dataset),
+            pattern="",
+            extension="h5"
+        )
+
+def test_raw_image_no_catch(
     tmp_dataset
 ):
 
     with pytest.raises(FileNotFoundError):
-        mesospim_to_omezarr(
+        raw_paths = find_raw_image_files(
             zarr_dir=str(tmp_dataset),
-            metadata_file=None,
+            pattern="",
+            extension="h5"
         )
 
-def test_metadata_autodiscovery_multiple_files(
-    tmp_dataset, 
-    h5_txt_metadata
+def test_metadata_autodiscovery_single_file(
+    tmp_dataset
 ):
-    # Create a second metadata file
-    (tmp_dataset / "other_h5_txt_metadata.h5_meta.txt").write_text("1")
+    h5_path = tmp_dataset / f"image_0001.h5"
+    h5_path_meta = tmp_dataset / f"image_0001.h5_meta.txt"
+    h5_path_meta.touch()
+    h5_path.touch()
+    raw_image_paths = [h5_path]
 
-    # Verify that error is raised
+    meta_path = find_metadata_file(
+        zarr_dir=str(tmp_dataset),
+        raw_image_paths=raw_image_paths,
+        extension="h5"
+    )
+
+    assert meta_path.name == "image_0001.h5_meta.txt"
+
+    raw_image_paths = []
+    for i in range(2):
+        tif_path = tmp_dataset / f"image_0001_Mag_ch{i}.tif"
+        tif_path.touch()
+        raw_image_paths.append(tif_path)
+    tif_path_meta = tmp_dataset / f"image_0001.tif_meta.txt"
+    tif_path_meta.touch()
+    
+    meta_path = find_metadata_file(
+        zarr_dir=str(tmp_dataset),
+        raw_image_paths=raw_image_paths,
+        extension="tif"
+    )
+    assert meta_path.name == "image_0001.tif_meta.txt"
+
+    raw_image_paths = []
+    for i in range(2):
+        raw_path = tmp_dataset / f"image_0001_Mag_ch{i}.raw"
+        raw_path.touch()
+        raw_image_paths.append(raw_path)
+    raw_path_meta = tmp_dataset / f"image_0001.raw_meta.txt"
+    raw_path_meta.touch()
+    
+    meta_path = find_metadata_file(
+        zarr_dir=str(tmp_dataset),
+        raw_image_paths=raw_image_paths,
+        extension="raw"
+    )
+    assert meta_path.name == "image_0001.raw_meta.txt"
+
+def test_metadata_autodiscovery_multiple_files(
+    tmp_dataset
+):
+    h5_path = tmp_dataset / f"image_0001.h5"
+    h5_path.touch()
+    for i in range(2):
+        h5_path_meta = tmp_dataset / f"image_0001.h5_s{i}-t0_meta.txt"
+        h5_path_meta.touch()
+
+    meta_path = find_metadata_file(
+        zarr_dir=tmp_dataset,
+        raw_image_paths=[h5_path],
+        extension="h5"
+    )
+    assert meta_path.name == "image_0001.h5_meta.txt"
+
+    raw_paths = []
+    for i in range(2):
+        tif_path = tmp_dataset / f"image_0001_Mag_ch{i}.tif"
+        tif_path.touch()
+        tif_path_meta = tmp_dataset / f"image_0001_Mag_ch{i}.tif_meta.txt"
+        tif_path_meta.touch()
+        raw_paths.append(tif_path)
+
+    meta_path = find_metadata_file(
+        zarr_dir=str(tmp_dataset),
+        raw_image_paths=raw_paths,
+        extension="tif"
+    )
+    assert meta_path.name == "image_0001.tif_meta.txt"
+
+    raw_paths = []
+    for i in range(2):
+        raw_path = tmp_dataset / f"image_0001_Mag_ch{i}.raw"
+        raw_path.touch()
+        raw_path_meta = tmp_dataset / f"image_0001_Mag_ch{i}.raw_meta.txt"
+        raw_path_meta.touch()
+        raw_paths.append(raw_path)
+
+    meta_path = find_metadata_file(
+        zarr_dir=str(tmp_dataset),
+        raw_image_paths=raw_paths,
+        extension="raw"
+    )
+
+def test_metadata_autodiscovery_no_match(
+    tmp_dataset
+):
     with pytest.raises(FileNotFoundError):
         mesospim_to_omezarr(
             zarr_dir=str(tmp_dataset),
@@ -216,33 +350,6 @@ def test_dispatcher_invalid():
     with pytest.raises(ValueError):
         dispatcher("none")
 
-def test_convert_no_files(
-    tmp_dataset, 
-    mocker
-):
-    chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
-    image_group = {"raw_image": mocker.Mock()}
-    meta_df = pd.DataFrame()
-
-    with pytest.raises(FileNotFoundError):
-        convert_raw(
-            file_dir=str(tmp_dataset),
-            basename="",
-            image_group=image_group,
-            image_path=str(tmp_dataset / "out"),
-            meta_df=meta_df,
-            chunk_sizes=chunk_sizes,
-        )
-    with pytest.raises(FileNotFoundError):
-        convert_tiff(
-            file_dir=str(tmp_dataset),
-            basename="",
-            image_group=image_group,
-            image_path=str(tmp_dataset / "out"),
-            meta_df=meta_df,
-            chunk_sizes=chunk_sizes,
-        )
-
 def test_wrong_file_count(
     tmp_dataset, 
     mocker
@@ -258,8 +365,7 @@ def test_wrong_file_count(
 
     with pytest.raises(ValueError, match="Number of raw files"):
         convert_raw(
-            str(tmp_dataset),
-            "sample",
+            [raw_file],
             image_group,
             str(tmp_dataset / "out"),
             meta_df,
@@ -271,8 +377,7 @@ def test_wrong_file_count(
     imwrite(tiff_file, arr)
     with pytest.raises(ValueError, match="Number of tiff files"):
         convert_tiff(
-            str(tmp_dataset),
-            "sample",
+            [tiff_file],
             image_group,
             str(tmp_dataset / "out"),
             meta_df,
@@ -287,11 +392,15 @@ def test_num_channel_mismatch(
     image_group = {"raw_image": mocker.Mock()}
 
     # Wrong channel names in stems
+    image_paths_raw = []
     for name in ["wrong_channel", "640"]:
         p = tmp_dataset / f"sample_{name}.raw"
+        image_paths_raw.append(p)
         p.write_bytes(b"\x00\x00" * (2*2*2))
+    image_paths_tiff = []
     for name in ["wrong_channel", "640"]:
         p = tmp_dataset / f"sample_{name}.tiff"
+        image_paths_tiff.append(p)
         arr = np.zeros((2,2,2), dtype=np.uint16)
         imwrite(p, arr)
 
@@ -300,8 +409,7 @@ def test_num_channel_mismatch(
 
     with pytest.raises(ValueError, match="No raw file found"):
         convert_raw(
-            str(tmp_dataset),
-            "sample",
+            image_paths_raw,
             image_group,
             str(tmp_dataset / "out"),
             meta_df,
@@ -309,56 +417,11 @@ def test_num_channel_mismatch(
         )
     with pytest.raises(ValueError, match="No tiff file found"):
         convert_tiff(
-            str(tmp_dataset),
-            "sample",
+            image_paths_tiff,
             image_group,
             str(tmp_dataset / "out"),
             meta_df,
             chunk_sizes,
-        )
-
-def test_convert_h5_no_file(
-    tmp_dataset, 
-    mocker
-):
-    chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
-    image_group = {"raw_image": mocker.Mock()}
-
-    meta_file = Path("tests", "data", "multitile_example.h5_meta.txt")
-    meta_df = read_metadata(meta_file, exclusion_list=[])
-
-    with pytest.raises(FileNotFoundError):
-        convert_h5_multitile(
-            file_dir=str(tmp_dataset),
-            pattern="",
-            image_group=image_group,
-            image_path=str(tmp_dataset / "out"),
-            meta_df=meta_df,
-            chunk_sizes=chunk_sizes,
-        )
-
-def test_convert_h5_multiple_files(
-    tmp_dataset, 
-    mocker
-):
-    chunk_sizes = mocker.Mock(get_chunksize=mocker.Mock(return_value=(1,1,1,1)))
-    image_group = {"raw_image": mocker.Mock()}
-
-    meta_file = Path("tests", "data", "multitile_example.h5_meta.txt")
-    meta_df = read_metadata(meta_file, exclusion_list=[])
-
-    # Two matching .h5 files
-    (tmp_dataset / "sample_my_pattern_1.h5").touch()
-    (tmp_dataset / "sample_my_pattern_2.h5").touch()
-
-    with pytest.raises(FileNotFoundError):
-        convert_h5_multitile(
-            file_dir=str(tmp_dataset),
-            pattern="my_pattern",
-            image_group=image_group,
-            image_path=str(tmp_dataset / "out"),
-            meta_df=meta_df,
-            chunk_sizes=chunk_sizes,
         )
 
 def test_convert_h5_tile_channel_mismatch_raises(
@@ -377,8 +440,7 @@ def test_convert_h5_tile_channel_mismatch_raises(
 
     with pytest.raises(ValueError):
         convert_h5_multitile(
-            file_dir=str(tmp_dataset),
-            pattern="example",
+            [tmp_dataset / "example.h5"],
             image_group=image_group,
             image_path=str(tmp_dataset / "out"),
             meta_df=meta_df,

@@ -11,6 +11,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
+import re
 from pathlib import Path
 from typing import Optional, Callable, Any
 import json
@@ -374,8 +375,7 @@ def read_metadata(
     return meta_df
 
 def convert_raw(
-    file_dir: str,
-    basename: str,
+    raw_image_paths: list[Path],
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
@@ -385,8 +385,7 @@ def convert_raw(
     Convert raw files that matches the basename in provided directory to zarr.
 
     Parameters:
-        file_dir (str): Path to the directory containing the tiff files.
-        basename (str): Common basename of the tiff files.
+        raw_image_paths (list[Path]): List of paths to the raw image files.
         image_group (zarr.Group): Image group to store the image from the tiff files.
         zarr_image_path (str): Filepath to the image group to store the tiff files.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
@@ -395,32 +394,20 @@ def convert_raw(
     Returns:
         None
     """
-
-    path = Path(file_dir)
-    files = [file for file in path.glob("*")
-             if file.is_file() and basename in str(file)
-             and (file.suffix == (".raw"))
-             ]
-    
-    if len(files) == 0:
-        logger.error(f"No raw files found for {basename} in {file_dir}")
-        raise FileNotFoundError
+    if len(raw_image_paths) != len(meta_df):
+        raise ValueError("Number of raw files does not match expected number of "
+                            "files/channels extracted from metadata file "
+                            f"({len(meta_df)} rows).")
     else:
-        logger.info(f"Found {len(files)} raw files for {basename} in {file_dir}")
-        if len(files) != len(meta_df):
-            raise ValueError("Number of raw files does not match expected number of "
-                             "files/channels extracted from metadata file "
-                             f"({len(meta_df)} rows).")
-        else:
-            concat_filenames = ""
-            for file in files:
-                concat_filenames += file.stem
-            channels = [str(meta_df.loc[i, "channel"]) for i in range(len(meta_df))]
-            for channel in channels:
-                if channel not in concat_filenames:
-                    raise ValueError("No raw file found that correspond to expected "
-                                     f"channel {channel}.")
-    zarr_shape = [len(files), meta_df.loc[0,"z_n_pixels"], meta_df.loc[0, "y_n_pixels"], 
+        concat_filenames = ""
+        for file in raw_image_paths:
+            concat_filenames += file.stem
+        channels = [str(meta_df.loc[i, "channel"]) for i in range(len(meta_df))]
+        for channel in channels:
+            if channel not in concat_filenames:
+                raise ValueError("No raw file found that correspond to expected "
+                                    f"channel {channel}.")
+    zarr_shape = [len(raw_image_paths), meta_df.loc[0,"z_n_pixels"], meta_df.loc[0, "y_n_pixels"], 
                   meta_df.loc[0, "x_n_pixels"]]
     logger.info(f"Creating zarr dataset of size {zarr_shape[0]} x "
                 f"{zarr_shape[1]} x {zarr_shape[2]} x "
@@ -437,7 +424,7 @@ def convert_raw(
     )
     
     for i, channel in enumerate(meta_df["channel"]):
-        for file in files:
+        for file in raw_image_paths:
             if channel in file.stem:
                 logger.info(f"Converting {file.name} to zarr")
                 mmap_file = np.memmap(file, dtype=np.uint16, mode="r", shape=tuple(zarr_shape[1:]))
@@ -447,7 +434,7 @@ def convert_raw(
                     region = (slice(i, i+1), slice(z, z+1), slice(None), slice(None))
                     image_arr[region] = plane
                 logger.info(f"Converted {file} to zarr")
-    logger.info(f"Converted {len(files)} raw files to zarr")
+    logger.info(f"Converted {len(raw_image_paths)} raw files to zarr")
 
     logger.info(f"Writing FOV and well ROI table to {image_path}")
     roi_df = pd.DataFrame()
@@ -478,8 +465,7 @@ def convert_raw(
     )
 
 def convert_tiff(
-    file_dir: str,
-    basename: str,
+    raw_image_paths: list[Path],
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
@@ -489,8 +475,7 @@ def convert_tiff(
     Convert tiff files that matches the basename in provided directory to zarr.
 
     Parameters:
-        file_dir (str): Path to the directory containing the tiff files.
-        basename (str): Common basename of the tiff files.
+        raw_image_paths (list[Path]): List of paths to the raw image files.
         image_group (zarr.Group): Image group to store the image from the tiff files.
         image_path (str): Filepath to the image group to store the tiff files.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
@@ -499,39 +484,27 @@ def convert_tiff(
     Returns:
         None
     """
-
-    path = Path(file_dir)
-    files = [file for file in path.glob("*")
-             if file.is_file() and basename in str(file)
-             and (file.suffix == (".tif") or file.suffix == (".tiff"))
-             ]
-    
-    if len(files) == 0:
-        logger.error(f"No tiff files found for {basename} in {file_dir}")
-        raise FileNotFoundError
+    if len(raw_image_paths) != len(meta_df):
+        raise ValueError("Number of tiff files does not match expected number of "
+                        "files/channels extracted from metadata file "
+                        f"({len(meta_df)} rows).")
     else:
-        logger.info(f"Found {len(files)} tiff files for {basename} in {file_dir}")
-        if len(files) != len(meta_df):
-            raise ValueError("Number of tiff files does not match expected number of "
-                            "files/channels extracted from metadata file "
-                            f"({len(meta_df)} rows).")
-        else:
-            concat_filenames = ""
-            for file in files:
-                concat_filenames += file.stem
-            channels = [meta_df.loc[i, "channel"] for i in range(len(meta_df))]
-            for channel in channels:
-                if channel not in concat_filenames:
-                    raise ValueError("No tiff file found that correspond to expected "
-                                    f"channel {channel}.")
+        concat_filenames = ""
+        for file in raw_image_paths:
+            concat_filenames += file.stem
+        channels = [meta_df.loc[i, "channel"] for i in range(len(meta_df))]
+        for channel in channels:
+            if channel not in concat_filenames:
+                raise ValueError("No tiff file found that correspond to expected "
+                                f"channel {channel}.")
 
-    logger.info(f"Creating zarr dataset of size {len(files)} x \
+    logger.info(f"Creating zarr dataset of size {len(raw_image_paths)} x \
                 {meta_df.loc[0,'z_n_pixels']} x {meta_df.loc[0, 'y_n_pixels']} x \
                 {meta_df.loc[0, 'x_n_pixels']} to store tiff files")
     logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
     
     image_arr = zarr.create(
-        shape=(len(files), 
+        shape=(len(raw_image_paths), 
                meta_df.loc[0,"z_n_pixels"], 
                meta_df.loc[0, "y_n_pixels"], 
                meta_df.loc[0, "x_n_pixels"]),
@@ -543,7 +516,7 @@ def convert_tiff(
     )
     
     for i, channel in enumerate(meta_df["channel"]):
-        for file in files:
+        for file in raw_image_paths:
             if channel in file.stem:
                 logger.info(f"Converting {file.name} to zarr")
                 for z in range(meta_df.loc[0, "z_n_pixels"]):
@@ -552,7 +525,7 @@ def convert_tiff(
                     region = (slice(i, i+1), slice(z, z+1), slice(None), slice(None))
                     image_arr[region] = plane
                 logger.info(f"Converted {file} to zarr")
-    logger.info(f"Converted {len(files)} tiff files to zarr")
+    logger.info(f"Converted {len(raw_image_paths)} tiff files to zarr")
 
     logger.info(f"Writing FOV and well ROI table to {image_path}")
     roi_df = pd.DataFrame()
@@ -583,8 +556,7 @@ def convert_tiff(
     )
 
 def convert_h5_multitile(
-    file_dir: str,
-    pattern: str,
+    raw_image_paths: list[Path],
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
@@ -595,8 +567,7 @@ def convert_h5_multitile(
     to zarr.
 
     Parameters:
-        file_dir (str): Path to the directory containing the h5 files.
-        pattern (str): Common pattern of the h5 files.
+        raw_image_paths (list[Path]): List of paths to the raw image files.
         image_group (zarr.Group): Image group to store the image from the h5 file.
         image_path (str): Filepath to the image group to store the h5 file.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
@@ -605,23 +576,11 @@ def convert_h5_multitile(
     Returns:
         None.
     """
-    
-    path = Path(file_dir)
-    files = [file for file in path.glob((f"*{pattern}*.h5").replace("**", "*")) \
-             if file.is_file()]
-    if len(files) == 0:
-        logger.error(f"No h5 file matches pattern:\"{pattern}\" in {file_dir}.")
-        raise FileNotFoundError
-    elif len(files) > 1:
-        logger.error(f"Found more than one h5 file matches for pattern:\"{pattern}\" "
-                    f"in {file_dir}.")
-        raise FileNotFoundError
-    else:
-        filename = files[0]
-        logger.info(f"Found {filename.name} in {file_dir}.")
+    assert len(raw_image_paths) == 1
+    raw_image_path = raw_image_paths[0]
 
     nb_channels = len(meta_df["channel"].unique())
-    logger.info(f"Found {nb_channels} channels in {filename.name}")
+    logger.info(f"Detected {nb_channels} channels in {raw_image_path.name} metadata.")
 
     tile_names = [f"t00000/s{i:02}/0/cells" for i in range(len(meta_df))]
     if len(tile_names) % nb_channels != 0:
@@ -629,7 +588,7 @@ def convert_h5_multitile(
         raise ValueError
     else:
         nb_tiles = len(tile_names) // nb_channels
-        logger.info(f"Found {nb_tiles} tiles per channel in {filename.name}")
+        logger.info(f"Found {nb_tiles} tiles per channel in {raw_image_path.name}")
 
     z_scale = meta_df.loc[0, "z_scale"]
     y_scale = meta_df.loc[0, "y_scale"]
@@ -670,7 +629,7 @@ def convert_h5_multitile(
                 y_pixels = channel_df.iloc[t]["y_n_pixels"]
                 x_pixels = channel_df.iloc[t]["x_n_pixels"]
 
-                with h5py.File(filename, "r") as f:
+                with h5py.File(raw_image_path, "r") as f:
                     chunks = chunk_sizes.get_chunksize()[-3:]
                     z_plane = da.from_array(f[tile_name], chunks=chunks)
                     z_plane = z_plane[None, :, :, :]
@@ -755,6 +714,122 @@ def dispatcher(
         logger.error(f"Unsupported extension: {extension}")
         raise ValueError
 
+def find_metadata_file(
+    zarr_dir: str,
+    raw_image_paths: list[Path],
+    extension: str
+) -> Path:
+    """
+    Searches the zarr directory for a metadata file.
+
+    First it searches for a unique metadata `_meta.txt` file using the provided pattern and extension. 
+    If no unique metadata file is found, it searches for a list of metadata `_meta.txt` files matching the 
+    pattern and the extension. Finally, it searches for a xml file matching the pattern and extension.
+
+    Parameters:
+        zarr_dir (str): Path of the directory containing the metadata files.
+        raw_image_paths (list[Path]): List of paths to the raw image files.
+        extension (str): File extension of the raw image files.
+
+    Returns:
+        Path: Path to the metadata file.
+    """
+    # Look zarr_dir for metadata files matching raw image file
+    assert len(raw_image_paths) > 0
+    common_name = raw_image_paths[0].stem.split("_Mag")[0]
+    
+    metadata_paths = []
+    for path in Path(zarr_dir).glob(f"{common_name}*.{extension}_meta.txt"):
+        metadata_paths.append(path)
+
+    if len(metadata_paths) == 1:
+        metadata_path = metadata_paths[0]
+        logger.info(f"Using {metadata_path.name} as metadata file.")
+    else:
+        logger.warning(f"Unique metadata file for raw image filename "
+                        f"\"{common_name}\" not found in {zarr_dir}."
+                        f"Searching for a list of metadata files instead.")
+        
+        metadata_paths = []
+        metadata_paths = [file for file in Path(zarr_dir).glob(f"{common_name}*{extension}*_meta.txt") \
+            if file.is_file()]
+        if len(metadata_paths) != 0:
+            metadata_path = Path(zarr_dir, f"{common_name}.{extension}_meta.txt")
+            with open(metadata_path, "w") as f_write:
+                if extension == "h5":
+                    tile_pattern = re.compile(r"_s(\d+)-t\d+_meta\.txt$")
+                    tile_map = {}
+                    for path in metadata_paths:
+                        match = tile_pattern.search(path.name)
+                        if not match:
+                            continue
+
+                        tile_index = int(match.group(1))
+                        tile_map[tile_index] = path
+                    for i in range(len(tile_map)):
+                        if i not in tile_map:
+                            logger.error(f"Metadata file cannot be found for tile {i} in zarr dir")
+                            raise FileNotFoundError 
+                        with open(tile_map[i], "r") as f_read:
+                            f_write.write(f_read.read())
+                else:
+                    for path in metadata_paths:
+                        with open(path, "r") as f_read:
+                            f_write.write(f_read.read())
+        else:
+            logger.error(f"No metadata file found for {common_name} in {zarr_dir}.")
+            raise FileNotFoundError
+    return metadata_path
+
+def find_raw_image_files(
+    zarr_dir: str, 
+    pattern: str,
+    extension: str
+) -> list[Path]:
+    """
+    Searches the zarr directory for a raw image file.
+
+    First it searches for a unique raw image file using the provided pattern and extension. 
+    If no unique raw image file is found, it searches for a list of raw image files matching the 
+    pattern and the extension.
+
+    Parameters:
+        zarr_dir (str): Path of the directory containing the raw image files.
+        extension (str): File extension of the raw image files.
+        pattern (str): Common pattern to identify which files in the dataset directory 
+            are to be converted (for example: if the files are image_name1.tiff, 
+            image_name2.tiff, ... then pattern = image_name). Default: "".
+
+    Returns:
+        list[Path]: List of paths to the raw image files.
+    """
+    if extension not in ("tiff", "tif", "raw", "h5"):
+        raise ValueError(f"Unsupported extension: {extension}. Must be either 'tiff', 'tif', 'raw' or 'h5'.")
+    
+    zarr_dir = Path(zarr_dir)
+    if extension == "tiff" or extension == "tif":
+        extensions = ("tif", "tiff")
+    else:
+        extensions = (extension,)
+    raw_image_paths = []
+    for ext in extensions:
+        raw_image_paths = raw_image_paths + [file for file in zarr_dir.glob((f"*{pattern}*.{ext}").replace("**", "*")) \
+                if file.is_file()]
+    if len(raw_image_paths) == 0:
+        logger.error(f"No image file matches pattern:\"{pattern}\" and extension:\"{extension}\" in {zarr_dir}.")
+        raise FileNotFoundError
+    if len(raw_image_paths) > 1:
+        if extension == "h5":
+            logger.error(f"Found {len(raw_image_paths)} h5 files. Only one raw image file is "
+                     "supported for h5 files.")
+            raise FileNotFoundError
+        common_name = raw_image_paths[0].stem.split("_Mag")[0]
+        logger.info(f"Found {len(raw_image_paths)} image files in {zarr_dir} with common name {common_name}.")
+    else:
+        logger.info(f"Found image file {raw_image_paths[0].name} in {zarr_dir}.")
+
+    return raw_image_paths
+
 @validate_call
 def mesospim_to_omezarr(
     *,
@@ -835,31 +910,17 @@ def mesospim_to_omezarr(
     image_group = zarr_group.create_group(image_name, overwrite=overwrite)
     image_path = Path(zarr_path, image_name)
 
-    # Read the metadata 
-    extension = extension.lower().replace(".", "")
-    if metadata_file is None:
-        metadata_path = []
-        if extension == "tiff" or extension == "tif":
-            extensions = ("tif", "tiff")
-        else:
-            extensions = (extension,)
-        for ext in extensions:
-            meta_pattern = f"*{pattern}*.{ext}_meta.txt".replace("**", "*")
-            for path in Path(zarr_dir).glob(meta_pattern):
-                metadata_path.append(path)
-        if len(metadata_path) != 1:
-            logger.error(f"Unique metadata file for pattern="
-                            f"\"{pattern}\" and"
-                            f" {extension} not found in {zarr_dir}.")
-            raise FileNotFoundError
-        else:
-            metadata_path = metadata_path[0]
-            logger.info(f"Using {metadata_path.name} as metadata file.")
-    else: 
+    # Find raw image file
+    raw_image_paths = find_raw_image_files(zarr_dir, pattern, extension)
+
+    # Read the metadata
+    if metadata_file is not None:
         metadata_path = Path(zarr_dir, metadata_file)
         if not metadata_path.exists():
             logger.error(f"Metadata file {metadata_file} not found in {zarr_dir}.")
             raise FileNotFoundError
+    else:
+        metadata_path = find_metadata_file(zarr_dir, raw_image_paths, extension=extension)
     
     # Convert files based on file extension
     convert_fn = dispatcher(extension)
@@ -873,7 +934,7 @@ def mesospim_to_omezarr(
     with _set_dask_cluster(n_workers=4) as cluster:
         with Client(cluster) as client:
             client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-            convert_fn(zarr_dir, pattern, image_group, image_path, meta_df, chunk_sizes)
+            convert_fn(raw_image_paths, image_group, image_path, meta_df, chunk_sizes)
 
             # Build the pyramid
             build_pyramid(

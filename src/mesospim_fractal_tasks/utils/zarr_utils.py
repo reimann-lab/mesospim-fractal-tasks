@@ -205,11 +205,23 @@ def _determine_optimal_contrast(
         if segment_sample:
             sample_threshold = np.percentile(low_res_arr[c], 50)
             sample_mask = low_res_arr[c] > sample_threshold
-            contrast_down = int(np.percentile(low_res_arr[c][sample_mask], 0.1))
-            contrast_up = int(np.percentile(low_res_arr[c][sample_mask], 99.9))
+            try:
+                contrast_down = int(np.percentile(low_res_arr[c][sample_mask], 0.1))
+            except:
+                contrast_down = int(low_res_arr[c][sample_mask].min())
+            try:
+                contrast_up = int(np.percentile(low_res_arr[c][sample_mask], 99.9))
+            except:
+                contrast_up = int(low_res_arr[c][sample_mask].max())
         else:
-            contrast_down = int(np.percentile(low_res_arr[c], 0.1))
-            contrast_up = int(np.percentile(low_res_arr[c], 99.9))
+            try:
+                contrast_down = int(np.percentile(low_res_arr[c], 0.1))
+            except:
+                contrast_down = int(low_res_arr[c].min())
+            try:
+                contrast_up = int(np.percentile(low_res_arr[c], 99.9))
+            except:
+                contrast_up = int(low_res_arr[c].max())
         contrast_limits[str(c)] = {"start": contrast_down, "end": contrast_up}
     return contrast_limits
 
@@ -340,38 +352,45 @@ def _write_label_metadata(
 
 def _store_label_to_zarr(
     label_path: Path,
-    label_mask: Union[np.ndarray, np.memmap],
-    chunksize: tuple[int, int, int] = [16, 256, 256],
+    label_mask: Union[np.ndarray, np.memmap, da.Array],
+    chunksize: Optional[tuple[int, int, int]] = None,
     overwrite: bool = False,
 ) -> None:
     """
     Store a label array to a zarr array.
     
     Parameters:
-        image_path: Path to the image group the label is associated with.
         label_path: Path to the label group to build the pyramid for.
         label_mask: 3D integer array of shape (X,Y,Z) with label information.
-        analysis_resolution_level: Resolution level used for the data analysis.
         chunksize: Chunk size to use for the zarr array.
         overwrite: Whether to overwrite existing pyramid.
     """
 
     # Load relevant metadata from source image
-    logger.info(f"Saving label mask at to {label_path} with chunk size {chunksize}")
     shape = label_mask.shape
+    if chunksize is None:
+        if isinstance(label_mask, da.Array):
+            chunksize = label_mask.chunksize
+        else:
+            logger.error("Chunk size not provided and label mask is not a dask array.")
+            raise ValueError
+
+    logger.info(f"Saving label mask at to {label_path} with chunk size {chunksize}")
     
     logger.info(f"Opening OME-Zarr array of shape {shape}.")
     mask_zarr = zarr.create(
             shape=shape,
             chunks=chunksize,
-            dtype=np.uint16,
+            dtype=label_mask.dtype,
             store=zarr.storage.FSStore(f"{label_path}/0"),
             overwrite=overwrite,
             dimension_separator="/",
         )
-    
-    mask_zarr[:] = label_mask
-    logger.info(f"saving to Zarr done!")
+    if isinstance(label_mask, da.Array):
+        label_mask.to_zarr(mask_zarr, compute=True)
+    else:
+        mask_zarr[:] = label_mask
+    logger.info(f"Saving to Zarr done!")
 
 def _build_label_pyramid(
     image_path: Path,

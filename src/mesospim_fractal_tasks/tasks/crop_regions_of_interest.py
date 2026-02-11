@@ -25,7 +25,9 @@ from fractal_tasks_core.tables import write_table
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
-                                                     build_pyramid)
+                                                     build_pyramid,
+                                                     _store_label_to_zarr,
+                                                     _write_label_metadata)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 logger = logging.getLogger(__name__)
@@ -230,7 +232,7 @@ def crop_regions_of_interest(
 
     # Copy NGFF metadata from the raw image to the roi image
     logger.info(f"Copying NGFF metadata from {zarr_path.name} to {roi_path.name}")
-    source_group = zarr.open_group(zarr_url, mode="r")
+    source_group = zarr.open_group(zarr_url, mode="a")
     source_attrs = source_group.attrs.asdict()
     roi_group = zarr.open(roi_path, mode="a")
     roi_group.attrs.put(source_attrs)
@@ -256,6 +258,54 @@ def crop_regions_of_interest(
                     for i in range(init_args["num_levels"])]
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
+
+    # Add roi masks in the source image
+    if init_args["crop_or_roi"] == "roi":
+        lowest_level = image_meta.num_levels - 1
+        lowest_res_arr = zarr.open_array(f"{zarr_path}/{lowest_level}", mode="r")
+        low_scale = image_meta.get_pixel_sizes_zyx(level=lowest_level)
+        low_shape = lowest_res_arr.shape
+        roi_mask = np.zeros(low_shape[1:], dtype=np.uint8)
+        z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
+                                                    coords['z_end'] + low_scale[0],
+                                                    low_shape[1], # type: ignore
+                                                    low_scale[0], 
+                                                    power=0)
+        y_start, y_end = check_binary_compatibility(max(coords['y_start'], 0),
+                                                    coords['y_end'] + low_scale[1], 
+                                                    low_shape[2], # type: ignore
+                                                    low_scale[1],
+                                                    power=0)
+        x_start, x_end = check_binary_compatibility(max(coords['x_start'], 0),
+                                                    coords['x_end'] + low_scale[2],
+                                                    low_shape[3], # type: ignore
+                                                    low_scale[2],
+                                                    power=0)
+        roi_mask[z_start:z_end, y_start:y_end, x_start:x_end] = 1
+
+        mask_dict = dict(
+            colors=[
+                {
+                    "label-value": 1,
+                    "rgba": [255, 255, 255, 125],
+                    "label": "roi_mask"
+                }
+            ]
+        )
+        _write_label_metadata(
+            source_group,
+            roi_id,
+            mask_dict,
+            num_levels=1,
+            analysis_resolution_level=lowest_level,
+            overwrite=True
+        )
+        _store_label_to_zarr(
+            zarr_path / "labels" / roi_id,
+            label_mask=roi_mask,
+            chunksize=lowest_res_arr.chunks[1:],
+            overwrite=True
+        )
 
     # Update FOV ROI table in case of crop
     if init_args["crop_or_roi"] == "crop":

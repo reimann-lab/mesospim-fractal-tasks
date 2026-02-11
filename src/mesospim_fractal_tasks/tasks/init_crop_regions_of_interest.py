@@ -40,7 +40,9 @@ def init_crop_regions_of_interest(
             FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted.
             Default: `roi`.
         roi_table_name: Name/identifier of the ROI coordinates table to identify 
-            it in the `zarr_dir`. If not provided, the default `roi_coords` is used.
+            it in the target image of the `zarr_dir` (e.g. if cropping zarr_dir/raw_image,
+            the table must be in the raw_image folder). If not provided, 
+            the default `roi_coords` is used.
         num_levels: Number of pyramid levels to generate for the ROI image (including 
             the full resolution image). If not provided, the same multi-resolution
             pyramid size as the original image will be used. Default: None.
@@ -64,10 +66,10 @@ def init_crop_regions_of_interest(
     if roi_table_name is None:
         roi_table_name = "roi_coords"
     tables = []
-    for path in Path(zarr_path.parent).glob(f"{roi_table_name}.csv"):
+    for path in Path(zarr_path).glob(f"{roi_table_name}.csv"):
         tables.append(path)
     if len(tables) != 1:
-        logger.error(f"Unique ROI coordinates table not found in {zarr_path.parent}.")
+        logger.error(f"Unique ROI coordinates table not found in {zarr_path}.")
         raise FileNotFoundError
     roi_table = pd.read_csv(tables[0], index_col=0)
 

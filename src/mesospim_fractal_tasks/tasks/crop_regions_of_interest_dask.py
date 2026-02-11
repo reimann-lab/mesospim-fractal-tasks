@@ -25,7 +25,9 @@ from fractal_tasks_core.tables import write_table
 
 from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
                                                      _update_omero_channels,
-                                                     build_pyramid)
+                                                     build_pyramid,
+                                                     _write_label_metadata,
+                                                     _store_label_to_zarr)
 from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
@@ -152,8 +154,7 @@ def check_binary_compatibility(
 
 def save_roi_parallel(
     zarr_path: Path,
-    full_res_arr: da.Array,
-    id: str,
+    roi_id: str,
     coords: dict[str, int],
     scale: tuple[float, float, float],
     num_levels: int,
@@ -165,14 +166,14 @@ def save_roi_parallel(
 
     Parameters:
         zarr_path (Path): Path to the OME-Zarr image to be processed.
-        full_res_arr (da.Array): Array of the full resolution image.
-        id (str): ID of the ROI to save.
+        roi_id (str): ID of the ROI to save.
         coords (dict[str, int]): Coordinates of the ROI to save.
         scale (tuple[float, float, float]): Pixel scale in um.
         num_levels (int): Number of pyramid levels.
         chunksize (tuple[int, int, int]): Chunk size to use for the new ROI image(s).
         crop_or_roi (str): Whether the ROI is a crop or a ROI.
     """
+    full_res_arr = da.from_zarr(zarr_path/"0")
     full_shape = full_res_arr.shape
     z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
                                                     coords['z_end'] + scale[0],
@@ -190,6 +191,10 @@ def save_roi_parallel(
                                                     scale[2],
                                                     power=num_levels)
 
+    assert z_start < z_end
+    assert y_start < y_end
+    assert x_start < x_end
+
     # Crop region
     logger.info(f"Cropping ROI region from full resolution image at "
                     f"{z_start}:{z_end}, {y_start}:{y_end}, {x_start}:{x_end}.")
@@ -198,9 +203,9 @@ def save_roi_parallel(
                         y_start:y_end,
                         x_start:x_end]
     
-    logger.info(f"Saving cropped region as {id}.")
+    logger.info(f"Saving cropped region as {roi_id}.")
     root_path = zarr_path.parent
-    roi_path = Path(root_path, id)
+    roi_path = Path(root_path, roi_id)
     roi_arr = zarr.create(
             shape=crop.shape, # type: ignore
             chunks=chunksize,
@@ -216,7 +221,7 @@ def save_roi_parallel(
                 slice(None),
                 slice(None))
         crop[region].to_zarr(roi_arr, compute=True, region=region) # type: ignore
-    logger.info(f"ROI {id} saved!")
+    logger.info(f"ROI {roi_id} saved!")
 
     # Copy NGFF metadata from the raw image to the roi image
     logger.info(f"Copying NGFF metadata from {zarr_path.name} to {roi_path.name}")
@@ -226,7 +231,7 @@ def save_roi_parallel(
     roi_group = zarr.open_group(roi_path, mode="a")
     roi_group.attrs.put(source_attrs)
     roi_group.attrs["crop_info"] = {
-        "roi_id": id,
+        "roi_id": roi_id,
         "crop_coordinates": {
             "z_start_um": coords['z_start'],
             "z_end_um": coords['z_end'],
@@ -238,13 +243,13 @@ def save_roi_parallel(
         "origin": f"{zarr_path.name}"
     }
     multiscales = roi_group.attrs["multiscales"]
-    multiscales[0]["name"] = id
+    multiscales[0]["name"] = roi_id
     roi_datasets = [multiscales[0]["datasets"][i] \
                     for i in range(num_levels)]
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
 
-# Update FOV ROI table in case of crop
+    # Update FOV ROI table in case of crop
     if crop_or_roi == "crop":
         coords = dict(x_start=x_start, x_end=x_end, 
                     y_start=y_start, y_end=y_end, 
@@ -298,7 +303,9 @@ def crop_regions_of_interest(
             FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted.
             Default: `roi`.
         roi_table_name: Name/identifier of the ROI coordinates table to identify 
-            it in the `zarr_dir`. If not provided, the default `roi_coords` is used.
+            it in the target image of the `zarr_dir` (e.g. if cropping zarr_dir/raw_image,
+            the table must be in the raw_image folder). If not provided, 
+            the default `roi_coords` is used.
         num_levels: Number of pyramid levels to generate for the ROI image (including 
             the full resolution image). If not provided, the same multi-resolution
             pyramid size as the original image will be used. Default: None.
@@ -313,32 +320,30 @@ def crop_regions_of_interest(
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image...")
-    full_res_arr = da.from_zarr(zarr_path/"0")
+    full_res_arr = zarr.open_array(zarr_path/"0", mode="r")
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     if chunksize is None:
-        logger.info(f"chunksize: {full_res_arr.chunksize}")
-        chunk_size = tuple(full_res_arr.chunksize)
+        chunk_size = tuple(full_res_arr.chunks)
     else:
-        logger.info(f"chunksize: {chunksize}")
         chunk_size = (1, int(chunksize.z), int(chunksize.y), int(chunksize.x)) # type: ignore
+    logger.info(f"Chunksize set to: {chunk_size}")
     if num_levels is None:
         num_levels = image_meta.num_levels
     if coarsening_xy is None:
         coarsening_xy = image_meta.coarsening_xy
         if coarsening_xy is None:
             coarsening_xy = 2
-    logger.info(f"chunksize: {chunk_size}")
 
     # Read ROI coordinates
     logger.info("Loading ROI coordinates table.")
     if roi_table_name is None:
         roi_table_name = "roi_coords"
     tables = []
-    for path in Path(zarr_path.parent).glob(f"{roi_table_name}.csv"):
+    for path in Path(zarr_path).glob(f"{roi_table_name}.csv"):
         tables.append(path)
     if len(tables) != 1:
-        logger.error(f"Unique ROI coordinates table not found in {zarr_path.parent}.")
+        logger.error(f"Unique ROI coordinates table not found in {zarr_path} folder.")
         raise FileNotFoundError
     roi_table = pd.read_csv(tables[0], index_col=0)
 
@@ -378,9 +383,8 @@ def crop_regions_of_interest(
                 crop_id = parallelisation_list[0]["roi_id"]
                 crop_coords = parallelisation_list[0]["roi_coords"]
                 crop_path = parallelisation_list[0]["roi_path"]
-                save_roi_parallel(zarr_path, 
-                                full_res_arr=full_res_arr,
-                                id=crop_id, 
+                save_roi_parallel(zarr_path,
+                                roi_id=crop_id, 
                                 coords=crop_coords, 
                                 scale=tuple(scale),
                                 num_levels=num_levels,
@@ -408,8 +412,7 @@ def crop_regions_of_interest(
                 for _, roi_params in enumerate(parallelisation_list):
                     fut = client.submit(save_roi_parallel, 
                                 zarr_path=zarr_path,
-                                full_res_arr=full_res_arr,
-                                id=roi_params["roi_id"],
+                                roi_id=roi_params["roi_id"],
                                 coords=roi_params["roi_coords"],
                                 scale=scale,
                                 num_levels=num_levels,
@@ -438,6 +441,55 @@ def crop_regions_of_interest(
                     num_levels, 
                     segment_sample=True)
                 _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
+        
+        # Add roi masks in the source image
+        for _, roi_params in enumerate(parallelisation_list):
+            lowest_level = image_meta.num_levels - 1
+            lowest_res_arr = zarr.open_array(f"{zarr_path}/{lowest_level}", mode="r")
+            low_scale = image_meta.get_pixel_sizes_zyx(level=lowest_level)
+            low_shape = lowest_res_arr.shape
+            roi_mask = np.zeros(low_shape[1:], dtype=np.uint8)
+            coords = roi_params["roi_coords"]
+            z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
+                                                        coords['z_end'] + low_scale[0],
+                                                        low_shape[1], # type: ignore
+                                                        low_scale[0], 
+                                                        power=0)
+            y_start, y_end = check_binary_compatibility(max(coords['y_start'], 0),
+                                                        coords['y_end'] + low_scale[1], 
+                                                        low_shape[2], # type: ignore
+                                                        low_scale[1],
+                                                        power=0)
+            x_start, x_end = check_binary_compatibility(max(coords['x_start'], 0),
+                                                        coords['x_end'] + low_scale[2],
+                                                        low_shape[3], # type: ignore
+                                                        low_scale[2],
+                                                        power=0)
+            roi_mask[z_start:z_end, y_start:y_end, x_start:x_end] = 1
+
+            mask_dict = dict(
+                colors=[
+                    {
+                        "label-value": 1,
+                        "rgba": [255, 255, 255, 125],
+                        "label": "roi_mask"
+                    }
+                ]
+            )
+            _write_label_metadata(
+                zarr.open_group(zarr_path, mode="a"),
+                roi_params["roi_id"],
+                mask_dict,
+                num_levels=1,
+                analysis_resolution_level=lowest_level,
+                overwrite=True
+            )
+            _store_label_to_zarr(
+                zarr_path / "labels" / roi_params["roi_id"],
+                label_mask=roi_mask,
+                chunksize=lowest_res_arr.chunks[1:],
+                overwrite=True
+            )
 
     image_list_updates = dict(
         image_list_updates=image_list_updates

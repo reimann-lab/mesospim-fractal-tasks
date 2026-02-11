@@ -17,9 +17,9 @@ class DimTuple(BaseModel):
         y: Y dimension size.
         x: X dimension size.
     """
-    z: int | None
-    y: int | None
-    x: int | None
+    z: Optional[int] = None
+    y: Optional[int] = None
+    x: Optional[int] = None
 
     def get_dict(self):
         d = dict()

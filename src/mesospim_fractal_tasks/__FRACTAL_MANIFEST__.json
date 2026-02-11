@@ -411,7 +411,7 @@
           "roi_table_name": {
             "title": "Roi Table Name",
             "type": "string",
-            "description": "Name/identifier of the ROI coordinates table to identify it in the `zarr_dir`. If not provided, the default `roi_coords` is used."
+            "description": "Name/identifier of the ROI coordinates table to identify it in the target image of the `zarr_dir` (e.g. if cropping zarr_dir/raw_image, the table must be in the raw_image folder). If not provided, the default `roi_coords` is used."
           },
           "num_levels": {
             "title": "Num Levels",
@@ -494,11 +494,6 @@
                 "type": "integer"
               }
             },
-            "required": [
-              "z",
-              "y",
-              "x"
-            ],
             "title": "DimTuple",
             "type": "object"
           },

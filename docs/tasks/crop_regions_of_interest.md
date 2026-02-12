@@ -20,9 +20,8 @@ The task can produce a crop of the full resolution image to remove empty space f
 
 ### ROI Table Name
 
-The task will look for a ROI coordinates table in the OME-Zarr directory. By default it will look for a table named `roi_coords.csv` in the OME-Zarr directory. This is how the Napari plugin **Crop Tool** saves the output coordinates.
-
-You can also provide the path to a table with a different name using this parameter.
+The task will look for a ROI coordinates table at the same location of the image that one wants to crop (e.g. if ROIs are taken from `raw_image_illum_corr`, the table should be in `raw_image_illum_corr`). By default it will look for a table named `roi_coords.csv`. If the name is different you can specify it with this parameter. 
+When using the Napari plugin **Crop Tool** to crop the ROIs, it saves the output coordinates by default using the name `roi_coords.csv` in the image folder currently opened in Napari.
 
 ---
 

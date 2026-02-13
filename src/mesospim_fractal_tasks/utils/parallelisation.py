@@ -39,7 +39,7 @@ def _set_dask_cluster(
         threads_per_worker=max(int(int(cpus) / n_workers), 1),
         processes=True,
         dashboard_address=None,
-        #silence_logs=logging.ERROR,
+        silence_logs=logging.ERROR,
     )
     return cluster
 

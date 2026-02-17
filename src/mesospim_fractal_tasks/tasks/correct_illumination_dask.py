@@ -334,6 +334,7 @@ def correct_illumination(
 
     with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
         with Client(cluster) as client:
+            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
             futures = []
             for channel_name, channel_idx in channel_dict.items():
                 fut = client.submit(

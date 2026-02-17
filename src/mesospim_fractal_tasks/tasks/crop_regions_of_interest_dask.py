@@ -216,6 +216,7 @@ def save_roi_parallel(
     )
     z_chunk = chunksize[1]
     for z in range(0, z_end-z_start, z_chunk):
+        logger.info(f"Progress: {z*100}/{z_end-z_start}%")
         region = (slice(None),
                 slice(z, z+z_chunk),
                 slice(None),

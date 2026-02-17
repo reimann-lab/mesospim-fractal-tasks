@@ -292,7 +292,7 @@ def stitch_with_multiview_stitcher(
     )
     logger.info("Finished building resolution pyramid")
 
-        # Add ROI table to the image
+    # Add ROI table to the image
     ngff_image_meta.get_pixel_sizes_zyx(level=0)
     pixels_ZYX = (
         ngff_image_meta.multiscales[0]

@@ -155,7 +155,7 @@ def write_ome_zarr_metadata(
                 "color": channel["color"],
                 "index": c,
                 "window": {
-                    "max": (2**16 - 1),
+                    "max": contrast_end * 10,
                     "end": contrast_end,
                     "start": contrast_start,
                     "min": 0
@@ -843,7 +843,7 @@ def mesospim_to_omezarr(
     exclusion_list: list[int] = [],
     num_levels: int = 6,
     coarsening_factor: int = 2,
-    chunksize: tuple[int, int, int] = (64, 1024, 1024),
+    chunksize: tuple[int, int, int] = (16, 256, 256),
     overwrite: bool = False
 ) -> dict[str, Any]:
     """
@@ -875,7 +875,7 @@ def mesospim_to_omezarr(
             so if you want no pyramid, then num_levels=1). For a 1Tb dataset, it is 
             recommended to have at least num_levels=6. Default: 6.
         chunksize (tuple[int, int, int]): Chunk size to use for the OME-Zarr image.
-            Default: (64, 1024, 1024).
+            Default: (16, 256, 256).
         coarsening_factor (int): Coarsening factor to apply to the pyramid. New pyramid
             resolution level will have an image with X/Y axis size divided by this factor. 
             Default: 2.

@@ -23,6 +23,9 @@ coarsening_xy = 2
 # To provide a value use: DimTuple(z=0, y=0, x=0) and replace 0 with your value
 chunksize = None
 
+# e.g. True or False, whether to overwrite existing ROIs
+overwrite = False
+
 ###############################################################################
 
 
@@ -37,5 +40,6 @@ if __name__ == "__main__":
         crop_or_roi=crop_or_roi,
         num_levels=num_levels,
         coarsening_xy=coarsening_xy,
-        chunksize=chunksize
+        chunksize=chunksize,
+        overwrite=overwrite
     )

@@ -5,7 +5,7 @@ directory and uses it to crop the image. To obtain the table, refer to the plugi
 
 There can be two different types of region of interest:
 
-1. ROI: The regions of interest are a sample of a given image intended for downstream analysis.
+1. ROI: The regions of interest are a sample of a given image intended for downstream analysis that contains structure(s) of interest (gland, muscle, DEJ...).
 2. Crop: The region of interest here is simply a smaller version of the full image to remove empty space and reduce the size of the OME-Zarr.
 
 ---
@@ -20,8 +20,8 @@ The task can produce a crop of the full resolution image to remove empty space f
 
 ### ROI Table Name
 
-The task will look for a ROI coordinates table at the same location of the image that one wants to crop (e.g. if ROIs are taken from `raw_image_illum_corr`, the table should be in `raw_image_illum_corr`). By default it will look for a table named `roi_coords.csv`. If the name is different you can specify it with this parameter. 
-When using the Napari plugin **Crop Tool** to crop the ROIs, it saves the output coordinates by default using the name `roi_coords.csv` in the image folder currently opened in Napari.
+The task will look for a ROI coordinates table in the OME-Zarr folder of the image that one wants to crop (e.g. if ROIs are taken from `sample.zarr/raw_image_illum_corr`, the table should be in `sample.zarr`). By default it will look for a table named `roi_coords.csv`. If the name of the table is different you can specify it with this parameter. 
+When using the Napari plugin **Crop Tool** to crop the ROIs, it saves the output coordinates by default using the name `roi_coords.csv` in the OME-Zarr folder currently opened in Napari. Each ROI that was drawn using the plugin will be attributed the name `<tag>_roi_<index>` where `<tag>` is a custom tag to help identify the type of ROI that was created (e.g. `muscle_roi_1`). The tag can be set in the plugin. The index of the ROI is automatically incremented for each ROI drawn.
 
 ---
 

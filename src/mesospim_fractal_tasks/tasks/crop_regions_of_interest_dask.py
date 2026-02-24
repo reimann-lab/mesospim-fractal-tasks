@@ -27,7 +27,8 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
                                                      _update_omero_channels,
                                                      build_pyramid,
                                                      _write_label_metadata,
-                                                     _store_label_to_zarr)
+                                                     _store_label_to_zarr,
+                                                     estimate_pyramid_depth)
 from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
@@ -290,6 +291,7 @@ def crop_regions_of_interest(
     num_levels: Optional[int] = None,
     coarsening_xy: Optional[int] = None,
     chunksize: Optional[DimTuple] = None,
+    overwrite: bool = False,
 ) -> Dict[str, Any]:
     """
     Crop regions of interest from a multi-channel OME-Zarr image. It loads the full
@@ -304,8 +306,8 @@ def crop_regions_of_interest(
             FOV_ROI_table. If `roi`, one or more small ROIs are to be extracted.
             Default: `roi`.
         roi_table_name: Name/identifier of the ROI coordinates table to identify 
-            it in the target image of the `zarr_dir` (e.g. if cropping zarr_dir/raw_image,
-            the table must be in the raw_image folder). If not provided, 
+            it in the OME-Zarr folder of the image to crop (e.g. if cropping zarr_dir/raw_image,
+            the table must be in the `zarr_dir` folder). If not provided, 
             the default `roi_coords` is used.
         num_levels: Number of pyramid levels to generate for the ROI image (including 
             the full resolution image). If not provided, the same multi-resolution
@@ -314,7 +316,9 @@ def crop_regions_of_interest(
             from the coarsening factor used for the full resolution image. Default: 2.
         chunksize: Chunk size to use for the new ROI image(s). If None, the chunksize
             of the original image will be used. Default: None.
-    """
+        overwrite: Whether to overwrite existing ROI images if they already exist 
+            in the OME-Zarr folder. Default: False.
+     """
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Crop Region of Interest` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
@@ -329,8 +333,6 @@ def crop_regions_of_interest(
     else:
         chunk_size = (1, int(chunksize.z), int(chunksize.y), int(chunksize.x)) # type: ignore
     logger.info(f"Chunksize set to: {chunk_size}")
-    if num_levels is None:
-        num_levels = image_meta.num_levels
     if coarsening_xy is None:
         coarsening_xy = image_meta.coarsening_xy
         if coarsening_xy is None:
@@ -353,7 +355,19 @@ def crop_regions_of_interest(
     logger.info(f"Preparing parallelisation list for {nb_rois} ROIs.")
     parallelisation_list = []
     image_list_updates = []
+    current_images = list(p.name for p in Path(zarr_path).glob("*") if p.is_dir())
     for roi_id, roi_row in roi_table.iterrows():
+        roi_id = str(roi_id).lower()
+        if roi_id in current_images and not overwrite:
+            logger.warning(f"ROI {roi_id} already exists in {zarr_path.parent.name} "
+                f"and overwrite set to `False`.") 
+            prefix = roi_id.split("roi_")[0]
+            suffix = int(roi_id.split("roi_")[-1])
+            if suffix == 9:
+                roi_id = f"{prefix}roi_{suffix+1:03d}"
+            else:    
+                roi_id = f"{prefix}roi_{suffix+1:02d}"
+            logger.info(f"New ROI will be saved with name {roi_id}.")
         if crop_or_roi == "crop":
             if len(roi_table) != 1:
                 logger.error("Number of ROIs in table and crop_or_roi parameters are "
@@ -366,11 +380,19 @@ def crop_regions_of_interest(
         else:
             roi_type = "is_roi"
         roi_path = Path(zarr_path.parent, str(roi_id))
+        roi_coords = roi_row.to_dict()
+        if num_levels is None:
+            shape = (full_res_arr.shape[0], 
+                     full_res_arr.shape[1], 
+                     full_res_arr.shape[2], 
+                     full_res_arr.shape[3])
+            num_levels = estimate_pyramid_depth(shape, roi_coords)
         parallelisation_list.append(
             dict(
                 roi_id=roi_id,
-                roi_coords=roi_row.to_dict(),
-                roi_path=roi_path
+                roi_coords=roi_coords,
+                roi_path=roi_path,
+                roi_num_levels=num_levels
             )
         )
         image_list_updates.append(dict(zarr_url=str(roi_path), 
@@ -384,6 +406,7 @@ def crop_regions_of_interest(
                 crop_id = parallelisation_list[0]["roi_id"]
                 crop_coords = parallelisation_list[0]["roi_coords"]
                 crop_path = parallelisation_list[0]["roi_path"]
+                num_levels = parallelisation_list[0]["roi_num_levels"]
                 save_roi_parallel(zarr_path,
                                 roi_id=crop_id, 
                                 coords=crop_coords, 
@@ -416,7 +439,7 @@ def crop_regions_of_interest(
                                 roi_id=roi_params["roi_id"],
                                 coords=roi_params["roi_coords"],
                                 scale=scale,
-                                num_levels=num_levels,
+                                num_levels=roi_params["roi_num_levels"],
                                 chunksize=chunk_size,
                                 crop_or_roi=crop_or_roi,
                                 pure=False,
@@ -427,7 +450,7 @@ def crop_regions_of_interest(
                     fut = client.submit(build_pyramid, 
                                 zarrurl=roi_params["roi_path"],
                                 overwrite=True,
-                                num_levels=num_levels,
+                                num_levels=roi_params["roi_num_levels"],
                                 coarsening_xy=coarsening_xy,
                                 chunksize=chunk_size,
                                 pure=False,
@@ -439,7 +462,7 @@ def crop_regions_of_interest(
             for _, roi_params in enumerate(parallelisation_list):
                 contrast_limits = _determine_optimal_contrast(
                     roi_params["roi_path"], 
-                    num_levels, 
+                    roi_params["roi_num_levels"],
                     segment_sample=True)
                 _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
         

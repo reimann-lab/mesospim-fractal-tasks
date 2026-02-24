@@ -13,6 +13,36 @@ from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
 
+def estimate_pyramid_depth(
+    shape: tuple[int, int, int, int],
+    roi_coords: Optional[dict] = None
+) -> int:
+    """
+    Estimate the pyramid depth based on the array shape.
+
+    In case the array is a ROI to be cropped, the array shape is updated
+    using the ROI coordinates.
+
+    Parameters:
+        shape (tuple[int, int, int, int]): Shape of the array.
+        roi_coords (dict[str, int]): ROI coordinates.
+
+    Returns:
+        int: Estimated pyramid depth.
+    """
+    if roi_coords is not None:
+        shape = shape[0], \
+            int(roi_coords["z_end"] - roi_coords["z_start"]), \
+            int(roi_coords["y_end"] - roi_coords["y_start"]), \
+            int(roi_coords["x_end"] - roi_coords["x_start"])
+    num_levels = 1
+    array_size = shape[0] * shape[1] * shape[2] * shape[3] * 2
+    while array_size > (35 * 1024**2):
+        array_size = array_size // 4
+        num_levels += 1
+
+    return num_levels
+
 def create_zarr_pyramid(
     zarr_path: Path,
     new_zarr_name: str,

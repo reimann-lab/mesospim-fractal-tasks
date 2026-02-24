@@ -373,9 +373,13 @@ def crop_regions_of_interest(
         if table_path.exists():
             roi_table = pd.read_csv(table_path, index_col=0)
         else:
-            logger.error(f"ROI coordinates table could not be found in {zarr_path.parent.name} folder "
-                         f"with name {roi_table_path.name}.")
-            raise FileNotFoundError
+            possible_match = list(Path(zarr_path.parent).rglob(roi_table_path.name))
+            if len(possible_match) == 1:
+                roi_table = pd.read_csv(possible_match[0], index_col=0)
+            else:
+                logger.error(f"ROI coordinates table could not be found in {zarr_path.parent.name} folder "
+                            f"with name {roi_table_path.name}.")
+                raise FileNotFoundError
 
     # Prepare parallelisation list
     nb_rois = len(roi_table)
@@ -394,7 +398,6 @@ def crop_regions_of_interest(
                 roi_id = f"{prefix}roi_{suffix+1:03d}"
             else:    
                 roi_id = f"{prefix}roi_{suffix+1:02d}"
-        logger.info(f"New ROI will be saved with name {roi_id}.")
         current_images.append(roi_id)
         if crop_or_roi == "crop":
             if len(roi_table) != 1:
@@ -408,13 +411,15 @@ def crop_regions_of_interest(
         else:
             roi_type = "is_roi"
         roi_path = Path(zarr_path.parent, str(roi_id))
+        logger.info(f"New ROI will be saved with name {roi_id}.")
         roi_coords = roi_row.to_dict()
         if num_levels is None:
             shape = (full_res_arr.shape[0], 
                      full_res_arr.shape[1], 
                      full_res_arr.shape[2], 
                      full_res_arr.shape[3])
-            num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
+            #num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
+            num_levels = image_meta.num_levels
         parallelisation_list.append(
             dict(
                 roi_id=roi_id,
@@ -447,7 +452,7 @@ def crop_regions_of_interest(
                 # Write pyramid of resolution
                 logger.info(f"Building pyramid of resolution for {crop_path.name}")
                 build_pyramid(
-                    zarrurl=crop_path,
+                    zarr_url=crop_path,
                     overwrite=True,
                     num_levels=num_levels,
                     coarsening_xy=coarsening_xy,

@@ -102,6 +102,7 @@ def build_pyramid_per_channel(
     
     logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
     for level in range(0, num_levels-1):
+        logger.info(f"Building pyramid level {level+1}/{num_levels-1}...")
         up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
         down_channel_arr = da.coarsen(
             reduction=np.mean,

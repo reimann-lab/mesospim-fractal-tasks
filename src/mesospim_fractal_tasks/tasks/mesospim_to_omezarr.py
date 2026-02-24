@@ -938,12 +938,12 @@ def mesospim_to_omezarr(
 
             # Build the pyramid
             build_pyramid(
-                zarrurl=str(image_path),
+                zarr_url=str(image_path),
                 overwrite=True,
                 num_levels=num_levels,
                 coarsening_xy=coarsening_factor,
                 chunksize=chunk_sizes.get_chunksize()
-                )
+            )
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(image_path, 

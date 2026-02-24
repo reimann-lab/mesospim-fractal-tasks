@@ -85,7 +85,7 @@ def create_zarr_pyramid(
 
 def build_pyramid(
     *,
-    zarrurl: Union[str, Path],
+    zarr_url: Union[str, Path],
     overwrite: bool = False,
     num_levels: int = 2,
     coarsening_xy: int = 2,
@@ -110,15 +110,13 @@ def build_pyramid(
     """
 
     # Clean up zarrurl
-    zarrurl = str(Path(zarrurl))  # FIXME
+    zarr_path = Path(zarr_url)
 
     # Select full-resolution multiscale level
-    zarrurl_highres = f"{zarrurl}/0"
-    logger.info(f"[build_pyramid] High-resolution path: {zarrurl_highres}")
+    zarrurl_highres = zarr_path / "0"
 
     # Lazily load highest-resolution data
     data_highres = da.from_zarr(zarrurl_highres)
-    logger.info(f"[build_pyramid] High-resolution data: {str(data_highres)}")
 
     # Check the number of axes and identify YX dimensions
     ndims = len(data_highres.shape)
@@ -134,6 +132,7 @@ def build_pyramid(
     # Compute and write lower-resolution levels
     previous_level = data_highres
     for ind_level in range(1, num_levels):
+        
         # Verify that coarsening is doable
         if min(previous_level.shape[-2:]) < coarsening_xy:
             raise ValueError(
@@ -155,8 +154,7 @@ def build_pyramid(
         else:
             newlevel_rechunked = newlevel.rechunk(chunksize)
         logger.info(
-            f"[build_pyramid] Level {ind_level} data: "
-            f"{str(newlevel_rechunked)}"
+            f"Building OME-Zarr pyramid level {ind_level}/{num_levels-1}..."
         )
 
         if open_array_kwargs is None:
@@ -165,7 +163,7 @@ def build_pyramid(
         # If overwrite is false, check that the array doesn't exist yet
         if not overwrite:
             try:
-                zarr.open(f"{zarrurl}/{ind_level}", mode="r")
+                zarr.open(str(zarr_path / str(ind_level)), mode="r")
                 raise ValueError(
                     f"While building the pyramids, pyramid level {ind_level} "
                     "already existed, but `build_pyramid` was called with "
@@ -175,7 +173,7 @@ def build_pyramid(
                 pass
 
         zarrarr = zarr.open(
-            f"{zarrurl}/{ind_level}",
+            str(zarr_path / str(ind_level)),
             shape=newlevel_rechunked.shape,
             chunks=newlevel_rechunked.chunksize,
             dtype=newlevel_rechunked.dtype,
@@ -187,17 +185,26 @@ def build_pyramid(
         )
 
         # Write zarr and store output (useful to construct next level)
-        newlevel_rechunked.to_zarr(
-            zarrarr,
-            overwrite=overwrite,
-            compute=True,
-            return_stored=False,
-            write_empty_chunks=False,
-            dimension_separator=open_array_kwargs.get(
-                "dimension_separator", "/"
-            ),
-        )
-        previous_level = da.from_zarr(f"{zarrurl}/{ind_level}")
+        z_end = newlevel_rechunked.shape[1]
+        z_chunk = newlevel_rechunked.chunksize[1]
+        for z in range(0, z_end, z_chunk):
+            logger.info(f"Progress: {(z / z_end) * 100:.2f}%")
+            region = (slice(None),
+                    slice(z, z+z_chunk),
+                    slice(None),
+                    slice(None))
+            newlevel_rechunked[region].to_zarr(
+                zarrarr,
+                overwrite=overwrite,
+                compute=True,
+                region=region,
+                return_stored=False,
+                write_empty_chunks=False,
+                dimension_separator=open_array_kwargs.get(
+                    "dimension_separator", "/"
+                )
+            )
+        previous_level = da.from_zarr(str(zarr_path/ str(ind_level)))
 
 def _determine_optimal_contrast(
     image_path: Path,

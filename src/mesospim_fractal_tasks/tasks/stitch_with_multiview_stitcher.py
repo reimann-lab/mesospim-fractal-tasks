@@ -4,11 +4,11 @@ import logging
 from pathlib import Path
 from typing import Optional
 import os
+from dask.distributed import Client
 
 import anndata as ad
 import zarr
 from fractal_tasks_core.ngff import load_NgffImageMeta
-from fractal_tasks_core.pyramids import build_pyramid
 from fractal_tasks_core.roi import get_single_image_ROI
 from fractal_tasks_core.tables import write_table
 from multiview_stitcher import fusion, msi_utils, param_utils, registration
@@ -30,6 +30,8 @@ fusion.fuse = fuse
 registration.phase_correlation_registration = phase_correlation_registration
 
 from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.utils.zarr_utils import build_pyramid
+from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks import __version__, __commit__
 
 logger = logging.getLogger(__name__)
@@ -281,16 +283,18 @@ def stitch_with_multiview_stitcher(
     
     logger.info("Finished fusing tiles.")
 
-    logger.info("Started building resolution pyramid")
-    build_pyramid(
-        zarrurl=output_zarr_path,
-        overwrite=True,
-        num_levels=ngff_image_meta.num_levels,
-        chunksize=original_chunksize,
-        coarsening_xy=ngff_image_meta.coarsening_xy,
-        open_array_kwargs={"write_empty_chunks": False, "fill_value": 0},
-    )
-    logger.info("Finished building resolution pyramid")
+    logger.info("Start building multi-resolution pyramid.")
+    with _set_dask_cluster(n_workers=4) as cluster:
+        with Client(cluster) as client:
+            build_pyramid(
+                zarr_url=output_zarr_path,
+                overwrite=True,
+                num_levels=ngff_image_meta.num_levels,
+                chunksize=original_chunksize,
+                coarsening_xy=ngff_image_meta.coarsening_xy,
+                open_array_kwargs={"write_empty_chunks": False, "fill_value": 0},
+            )
+            logger.info("Finished building resolution pyramid")
 
     # Add ROI table to the image
     ngff_image_meta.get_pixel_sizes_zyx(level=0)

@@ -28,7 +28,7 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
                                                      build_pyramid,
                                                      _write_label_metadata,
                                                      _store_label_to_zarr,
-                                                     estimate_pyramid_depth)
+                                                     _estimate_pyramid_depth)
 from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
@@ -160,6 +160,7 @@ def save_roi_parallel(
     scale: tuple[float, float, float],
     num_levels: int,
     chunksize: tuple[int, int, int, int],
+    coarsening_xy: int,
     crop_or_roi: str,
 ) -> None:
     """
@@ -172,6 +173,7 @@ def save_roi_parallel(
         scale (tuple[float, float, float]): Pixel scale in um.
         num_levels (int): Number of pyramid levels.
         chunksize (tuple[int, int, int]): Chunk size to use for the new ROI image(s).
+        coarsening_xy (int): Coarsening factor in XY for the ROI image.
         crop_or_roi (str): Whether the ROI is a crop or a ROI.
     """
     full_res_arr = da.from_zarr(zarr_path/"0")
@@ -217,7 +219,7 @@ def save_roi_parallel(
     )
     z_chunk = chunksize[1]
     for z in range(0, z_end-z_start, z_chunk):
-        logger.info(f"Progress: {z*100}/{z_end-z_start}%")
+        logger.info(f"Progress: {z / (z_end-z_start) * 100:.2f}%")
         region = (slice(None),
                 slice(z, z+z_chunk),
                 slice(None),
@@ -246,8 +248,28 @@ def save_roi_parallel(
     }
     multiscales = roi_group.attrs["multiscales"]
     multiscales[0]["name"] = roi_id
+    len_datasets = len(multiscales[0]["datasets"])
     roi_datasets = [multiscales[0]["datasets"][i] \
-                    for i in range(num_levels)]
+                    for i in range(len_datasets)]
+    multiscales[0]["datasets"] = roi_datasets
+    if len_datasets < num_levels:
+        last_scale = roi_datasets[-1]["coordinateTransformations"][0]["scale"]
+        for i in range(len_datasets, num_levels):
+            roi_datasets.append(
+                {
+                    "coordinateTransformations": [
+                        {
+                            "scale": [
+                                last_scale[0],
+                                last_scale[1],
+                                last_scale[2] // coarsening_xy,
+                                last_scale[3] // coarsening_xy
+                            ],
+                            "type": "scale"
+                        }
+                    ],
+                    "path": str(i)
+                })
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
 
@@ -279,7 +301,6 @@ def save_roi_parallel(
         overwrite=True,
         table_attrs={"type": "roi_table"},
     )
-
 
 
 @validate_call
@@ -341,33 +362,40 @@ def crop_regions_of_interest(
     # Read ROI coordinates
     logger.info("Loading ROI coordinates table.")
     if roi_table_name is None:
-        roi_table_name = "roi_coords"
-    tables = []
-    for path in Path(zarr_path).glob(f"{roi_table_name}.csv"):
-        tables.append(path)
-    if len(tables) != 1:
-        logger.error(f"Unique ROI coordinates table not found in {zarr_path} folder.")
-        raise FileNotFoundError
-    roi_table = pd.read_csv(tables[0], index_col=0)
+        roi_table_path = Path("roi_coords.csv")
+    else:
+        roi_table_path = Path(roi_table_name).with_suffix(".csv")
+    table_path = Path(zarr_path.parent, roi_table_path)
+    if table_path.exists():
+        roi_table = pd.read_csv(table_path, index_col=0)
+    else:
+        table_path = Path(zarr_path, roi_table_path)
+        if table_path.exists():
+            roi_table = pd.read_csv(table_path, index_col=0)
+        else:
+            logger.error(f"ROI coordinates table could not be found in {zarr_path.parent.name} folder "
+                         f"with name {roi_table_path.name}.")
+            raise FileNotFoundError
 
     # Prepare parallelisation list
     nb_rois = len(roi_table)
     logger.info(f"Preparing parallelisation list for {nb_rois} ROIs.")
     parallelisation_list = []
     image_list_updates = []
-    current_images = list(p.name for p in Path(zarr_path).glob("*") if p.is_dir())
+    current_images = list(p.name for p in Path(zarr_path.parent).glob("*") if p.is_dir())
     for roi_id, roi_row in roi_table.iterrows():
         roi_id = str(roi_id).lower()
-        if roi_id in current_images and not overwrite:
+        while roi_id in current_images and not overwrite:
             logger.warning(f"ROI {roi_id} already exists in {zarr_path.parent.name} "
                 f"and overwrite set to `False`.") 
             prefix = roi_id.split("roi_")[0]
-            suffix = int(roi_id.split("roi_")[-1])
+            suffix = int(roi_id.split("roi_")[-1]) + 1
             if suffix == 9:
                 roi_id = f"{prefix}roi_{suffix+1:03d}"
             else:    
                 roi_id = f"{prefix}roi_{suffix+1:02d}"
-            logger.info(f"New ROI will be saved with name {roi_id}.")
+        logger.info(f"New ROI will be saved with name {roi_id}.")
+        current_images.append(roi_id)
         if crop_or_roi == "crop":
             if len(roi_table) != 1:
                 logger.error("Number of ROIs in table and crop_or_roi parameters are "
@@ -386,7 +414,7 @@ def crop_regions_of_interest(
                      full_res_arr.shape[1], 
                      full_res_arr.shape[2], 
                      full_res_arr.shape[3])
-            num_levels = estimate_pyramid_depth(shape, roi_coords)
+            num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
         parallelisation_list.append(
             dict(
                 roi_id=roi_id,
@@ -413,6 +441,7 @@ def crop_regions_of_interest(
                                 scale=tuple(scale),
                                 num_levels=num_levels,
                                 chunksize=chunk_size,
+                                coarsening_xy=coarsening_xy,
                                 crop_or_roi=crop_or_roi)
                 
                 # Write pyramid of resolution
@@ -441,6 +470,7 @@ def crop_regions_of_interest(
                                 scale=scale,
                                 num_levels=roi_params["roi_num_levels"],
                                 chunksize=chunk_size,
+                                coarsening_xy=coarsening_xy,
                                 crop_or_roi=crop_or_roi,
                                 pure=False,
                                 retries=1)

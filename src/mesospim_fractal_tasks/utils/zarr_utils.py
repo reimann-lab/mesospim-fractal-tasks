@@ -13,9 +13,10 @@ from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
 
-def estimate_pyramid_depth(
-    shape: tuple[int, int, int, int],
-    roi_coords: Optional[dict] = None
+def _estimate_pyramid_depth(
+    shape: tuple[int, ...],
+    roi_coords: Optional[dict] = None,
+    scale: Optional[tuple[float, ...]] = None
 ) -> int:
     """
     Estimate the pyramid depth based on the array shape.
@@ -24,23 +25,23 @@ def estimate_pyramid_depth(
     using the ROI coordinates.
 
     Parameters:
-        shape (tuple[int, int, int, int]): Shape of the array.
+        shape (tuple[int, ...]): Shape of the array.
         roi_coords (dict[str, int]): ROI coordinates.
+        scale (tuple[float, ...]): Pixel scale in um.
 
     Returns:
         int: Estimated pyramid depth.
     """
     if roi_coords is not None:
         shape = shape[0], \
-            int(roi_coords["z_end"] - roi_coords["z_start"]), \
-            int(roi_coords["y_end"] - roi_coords["y_start"]), \
-            int(roi_coords["x_end"] - roi_coords["x_start"])
+            int((roi_coords["z_end"] - roi_coords["z_start"]) / scale[0]), \
+            int((roi_coords["y_end"] - roi_coords["y_start"]) / scale[1]), \
+            int((roi_coords["x_end"] - roi_coords["x_start"]) / scale[2])
     num_levels = 1
     array_size = shape[0] * shape[1] * shape[2] * shape[3] * 2
     while array_size > (35 * 1024**2):
         array_size = array_size // 4
         num_levels += 1
-
     return num_levels
 
 def create_zarr_pyramid(

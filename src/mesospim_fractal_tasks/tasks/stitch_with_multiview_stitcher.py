@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Optional
 import os
 from dask.distributed import Client
+import dask.array as da
 
 import anndata as ad
 import zarr
@@ -44,7 +45,7 @@ def stitch_with_multiview_stitcher(
     registration_resolution_level: Optional[int] = None,
     registration_on_z_proj: bool = False,
     registration_function: str = "phase_correlation",
-    overlap_tolerance: DimTuple = DimTuple(z=0, y=0, x=0),
+    overlap_tolerance: Optional[DimTuple] = None,
     transform_type: str = "translation",
     pre_registration_pruning_method: str = "keep_axis_aligned",
     max_workers: int = 4,
@@ -132,12 +133,20 @@ def stitch_with_multiview_stitcher(
     xim_well_reg = get_sim_from_multiscales(
         Path(zarr_url), resolution=registration_resolution_level
     )
-    original_chunksize = xim_well_reg.data.chunksize
+    original_chunksize = da.from_zarr(zarr_path / "0").chunksize[-3:]
 
     # Determine whether to perform registration on maximum projection in Z
+    if overlap_tolerance is None:
+        overlap_tolerance = DimTuple(z=0, y=0, x=0)
+    else:
+        for dim in ["z", "y", "x"]:
+            if overlap_tolerance[dim] is None:
+                overlap_tolerance[dim] = 0
+            else:
+                overlap_tolerance[dim] = overlap_tolerance[dim]
     if registration_on_z_proj:
         xim_well_reg = xim_well_reg.max("z")
-        overlap_tolerance = DimTuple(z=None, y=0, x=0)
+        overlap_tolerance["z"] = None
 
     # Define the registration grid
     msims_reg = get_tiles_from_sim(
@@ -205,11 +214,13 @@ def stitch_with_multiview_stitcher(
     output_zarr_path = Path(zarr_path.parent, zarr_path.name + "_fused")
     logger.info(f"Saving fused image to {output_zarr_path.name}") 
 
-    if fusion_chunksize is None:
-        fusion_chunks_tuple = original_chunksize[-3:]
-    else:
-        fusion_chunks_tuple = (fusion_chunksize.z, fusion_chunksize.y, fusion_chunksize.x)
-    logger.info(f"Fusion chunk size set to: {fusion_chunksize}.")
+    fusion_chunks = list(original_chunksize[-3:])
+    if fusion_chunksize is not None:
+        for i, dim in enumerate(["z", "y", "x"]):
+            if fusion_chunksize[dim] is not None:
+                fusion_chunks[i] = fusion_chunksize[dim]
+    fusion_chunks = tuple(fusion_chunks)
+    logger.info(f"Fusion chunk size set to: {fusion_chunks}.")
     
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
@@ -218,7 +229,7 @@ def stitch_with_multiview_stitcher(
         # Load the full-resolution image for fusion
         xim_well = get_sim_from_multiscales(zarr_path, 
                                             resolution=0, 
-                                            chunks=(1,) + fusion_chunks_tuple)
+                                            chunks=(1,) + fusion_chunks)
         msims_fusion = get_tiles_from_sim(
             xim_well, fov_roi_table, transform_key=input_transform_key
         )
@@ -246,15 +257,9 @@ def stitch_with_multiview_stitcher(
     sdims = si_utils.get_spatial_dims_from_sim(xim_well)
     ndim = len(sdims)
 
-    if fusion_chunksize is None:
-        fusion_chunksize_dict = {
-            dim: xim_well.data.chunksize[(-ndim + idim)] \
-            for idim, dim in enumerate(sdims)
-        }
-    else:
-        fusion_chunksize_dict = {
-            dim: cs for dim, cs in zip(sdims, fusion_chunks_tuple)
-        }
+    fusion_chunksize_dict = {
+        dim: cs for dim, cs in zip(sdims, fusion_chunks)
+    }
 
     batch_options = {"zarr_array_creation_kwargs": {"dimension_separator": "/"},
                      "max_workers": max_workers,

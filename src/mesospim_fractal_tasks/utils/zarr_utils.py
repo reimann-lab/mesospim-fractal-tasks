@@ -39,8 +39,8 @@ def _estimate_pyramid_depth(
             int((roi_coords["x_end"] - roi_coords["x_start"]) / scale[2])
     num_levels = 1
     array_size = shape[0] * shape[1] * shape[2] * shape[3] * 2
-    while array_size > (35 * 1024**2):
-        array_size = array_size // 4
+    while array_size > (200 * 1024**2):
+        array_size = (array_size // 4)
         num_levels += 1
     return num_levels
 
@@ -109,19 +109,14 @@ def build_pyramid(
         open_array_kwargs: Additional arguments for zarr.open.
     """
 
-    # Clean up zarrurl
-    zarr_path = Path(zarr_url)
-
-    # Select full-resolution multiscale level
-    zarrurl_highres = zarr_path / "0"
-
     # Lazily load highest-resolution data
-    data_highres = da.from_zarr(zarrurl_highres)
+    zarr_path = Path(zarr_url)
+    full_res_array = da.from_zarr(str(zarr_path / "0"))
 
     # Check the number of axes and identify YX dimensions
-    ndims = len(data_highres.shape)
+    ndims = len(full_res_array.shape)
     if ndims not in [2, 3, 4]:
-        raise ValueError(f"{data_highres.shape=}, ndims not in [2,3,4]")
+        raise ValueError(f"{full_res_array.shape=}, ndims not in [2,3,4]")
     y_axis = ndims - 2
     x_axis = ndims - 1
 
@@ -130,7 +125,7 @@ def build_pyramid(
         aggregation_function = np.mean
 
     # Compute and write lower-resolution levels
-    previous_level = data_highres
+    previous_level = full_res_array
     for ind_level in range(1, num_levels):
         
         # Verify that coarsening is doable
@@ -146,7 +141,7 @@ def build_pyramid(
             previous_level,
             {y_axis: coarsening_xy, x_axis: coarsening_xy},
             trim_excess=True,
-        ).astype(data_highres.dtype)
+        ).astype(full_res_array.dtype)
 
         # Apply rechunking
         if chunksize is None:

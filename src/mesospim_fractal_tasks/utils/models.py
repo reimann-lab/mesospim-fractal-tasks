@@ -27,6 +27,12 @@ class DimTuple(BaseModel):
             if value is not None:
                 d[key] = value
         return d
+    
+    def __getitem__(self, key: str) -> Optional[int]:
+        return getattr(self, key)
+    
+    def __setitem__(self, key: str, value: Optional[int]) -> None:
+        setattr(self, key, value)
 
 class IlluminationModel(BaseModel):
     """

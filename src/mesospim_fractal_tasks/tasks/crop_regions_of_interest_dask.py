@@ -248,13 +248,17 @@ def save_roi_parallel(
     }
     multiscales = roi_group.attrs["multiscales"]
     multiscales[0]["name"] = roi_id
+    print(num_levels)
     len_datasets = len(multiscales[0]["datasets"])
     roi_datasets = [multiscales[0]["datasets"][i] \
-                    for i in range(len_datasets)]
+                    for i in range(min(len_datasets, num_levels))]
+    print(roi_datasets)
+    print(len_datasets)
     multiscales[0]["datasets"] = roi_datasets
     if len_datasets < num_levels:
         last_scale = roi_datasets[-1]["coordinateTransformations"][0]["scale"]
         for i in range(len_datasets, num_levels):
+            last_scale = last_scale[0], last_scale[1], last_scale[2] * 2, last_scale[3] * 2
             roi_datasets.append(
                 {
                     "coordinateTransformations": [
@@ -262,14 +266,15 @@ def save_roi_parallel(
                             "scale": [
                                 last_scale[0],
                                 last_scale[1],
-                                last_scale[2] // coarsening_xy,
-                                last_scale[3] // coarsening_xy
+                                last_scale[2],
+                                last_scale[3]
                             ],
                             "type": "scale"
                         }
                     ],
                     "path": str(i)
                 })
+
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
 
@@ -349,10 +354,12 @@ def crop_regions_of_interest(
     full_res_arr = zarr.open_array(zarr_path/"0", mode="r")
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = image_meta.get_pixel_sizes_zyx(level=0)
-    if chunksize is None:
-        chunk_size = tuple(full_res_arr.chunks)
-    else:
-        chunk_size = (1, int(chunksize.z), int(chunksize.y), int(chunksize.x)) # type: ignore
+    chunk_size = list(full_res_arr.chunks)
+    if chunksize is not None:
+        for i, dim in enumerate(["z", "y", "x"]):
+            if chunksize[dim] is not None:
+                chunk_size[(i+1)] = int(chunksize[dim])
+    chunk_size = tuple(chunk_size)
     logger.info(f"Chunksize set to: {chunk_size}")
     if coarsening_xy is None:
         coarsening_xy = image_meta.coarsening_xy
@@ -389,16 +396,6 @@ def crop_regions_of_interest(
     current_images = list(p.name for p in Path(zarr_path.parent).glob("*") if p.is_dir())
     for roi_id, roi_row in roi_table.iterrows():
         roi_id = str(roi_id).lower()
-        while roi_id in current_images and not overwrite:
-            logger.warning(f"ROI {roi_id} already exists in {zarr_path.parent.name} "
-                f"and overwrite set to `False`.") 
-            prefix = roi_id.split("roi_")[0]
-            suffix = int(roi_id.split("roi_")[-1]) + 1
-            if suffix == 9:
-                roi_id = f"{prefix}roi_{suffix+1:03d}"
-            else:    
-                roi_id = f"{prefix}roi_{suffix+1:02d}"
-        current_images.append(roi_id)
         if crop_or_roi == "crop":
             if len(roi_table) != 1:
                 logger.error("Number of ROIs in table and crop_or_roi parameters are "
@@ -407,8 +404,22 @@ def crop_regions_of_interest(
                 raise ValueError
             logger.info(f"Task set to produce a crop from original image (e.g. to reduce size).")
             roi_id = zarr_path.name + "_cropped"
+            if not overwrite and roi_id in current_images:
+                logger.error(f"Crop {roi_id} already exists in {zarr_path.parent.name} and "
+                             "overwrite set to `False`. Try setting overwrite to `True`.")
+                raise FileExistsError
             roi_type = "is_crop"
         else:
+            while roi_id in current_images and not overwrite:
+                logger.warning(f"ROI {roi_id} already exists in {zarr_path.parent.name} "
+                    f"and overwrite set to `False`.") 
+                prefix = roi_id.split("roi_")[0]
+                suffix = int(roi_id.split("roi_")[-1]) + 1
+                if suffix == 9:
+                    roi_id = f"{prefix}roi_{suffix+1:03d}"
+                else:    
+                    roi_id = f"{prefix}roi_{suffix+1:02d}"
+            current_images.append(roi_id)
             roi_type = "is_roi"
         roi_path = Path(zarr_path.parent, str(roi_id))
         logger.info(f"New ROI will be saved with name {roi_id}.")
@@ -418,8 +429,8 @@ def crop_regions_of_interest(
                      full_res_arr.shape[1], 
                      full_res_arr.shape[2], 
                      full_res_arr.shape[3])
-            #num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
-            num_levels = image_meta.num_levels
+            num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
+            #num_levels = image_meta.num_levels
         parallelisation_list.append(
             dict(
                 roi_id=roi_id,
@@ -483,7 +494,7 @@ def crop_regions_of_interest(
                 client.gather(futures)
                 for _, roi_params in enumerate(parallelisation_list):
                     fut = client.submit(build_pyramid, 
-                                zarrurl=roi_params["roi_path"],
+                                zarr_url=roi_params["roi_path"],
                                 overwrite=True,
                                 num_levels=roi_params["roi_num_levels"],
                                 coarsening_xy=coarsening_xy,

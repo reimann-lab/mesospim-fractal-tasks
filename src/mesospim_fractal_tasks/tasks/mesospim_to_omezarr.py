@@ -30,8 +30,8 @@ import dask.array as da
 import tifffile as tiff
 import h5py
 
-from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast, 
-                                                     build_pyramid)
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    _determine_optimal_contrast, _estimate_pyramid_depth, build_pyramid)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -841,9 +841,9 @@ def mesospim_to_omezarr(
     metadata_file: Optional[str] = None,
     channel_color_file: str = "default",
     exclusion_list: list[int] = [],
-    num_levels: int = 6,
+    num_levels: int = 7,
     coarsening_factor: int = 2,
-    chunksize: tuple[int, int, int] = (16, 256, 256),
+    chunksize: tuple[int, int, int] = (64, 256, 256),
     overwrite: bool = False
 ) -> dict[str, Any]:
     """
@@ -936,6 +936,10 @@ def mesospim_to_omezarr(
             client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
             convert_fn(raw_image_paths, image_group, image_path, meta_df, chunk_sizes)
 
+            shape = da.from_zarr(str(image_path / "0")).shape
+            scale = meta_df.loc[0, "z_scale"], meta_df.loc[0, "y_scale"], meta_df.loc[0, "x_scale"]
+            num_levels = _estimate_pyramid_depth(shape, scale=scale)
+
             # Build the pyramid
             build_pyramid(
                 zarr_url=str(image_path),
@@ -946,9 +950,8 @@ def mesospim_to_omezarr(
             )
 
     # Determine optimal contrast limits
-    contrast_limits = _determine_optimal_contrast(image_path, 
-                                                  num_levels, 
-                                                  segment_sample=True)
+    contrast_limits = _determine_optimal_contrast(
+        image_path, num_levels, segment_sample=True)
 
     # Write OME-ZARR metadata
     write_ome_zarr_metadata(

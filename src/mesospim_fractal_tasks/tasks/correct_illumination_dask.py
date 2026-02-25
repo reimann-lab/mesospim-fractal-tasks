@@ -359,6 +359,7 @@ def correct_illumination(
                     build_pyramid_per_channel,
                     new_zarr_path=new_zarr_path,
                     channel_index=channel_idx,
+                    channel_name=channel_name,
                     num_levels=num_levels,
                     coarsening_xy=coarsening_xy,
                     chunksize=image_array.chunksize,

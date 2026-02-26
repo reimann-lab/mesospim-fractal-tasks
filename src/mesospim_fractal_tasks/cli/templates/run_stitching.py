@@ -1,3 +1,12 @@
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
+os.environ["NUMBA_NUM_THREADS"] = "1"
+
 from mesospim_fractal_tasks.tasks.stitch_with_multiview_stitcher import stitch_with_multiview_stitcher
 from mesospim_fractal_tasks.utils.stitching import StitchingChannelInputModel
 from mesospim_fractal_tasks.utils.models import DimTuple
@@ -37,6 +46,9 @@ fusion_chunksize = None
 
 # e.g. 4, recommended if memory always
 max_workers = 4 
+
+# e.g. True or False, whether to erase the source image after correction
+erase_source_image = False
                                              
 ###############################################################################
 
@@ -56,5 +68,6 @@ if __name__ == "__main__":
         pre_registration_pruning_method=pre_registration_pruning_method,
         fusion_chunksize=fusion_chunksize,
         registration_on_z_proj = registration_on_z_proj,
-        max_workers=max_workers
+        max_workers=max_workers,
+        erase_source_image=erase_source_image
     )

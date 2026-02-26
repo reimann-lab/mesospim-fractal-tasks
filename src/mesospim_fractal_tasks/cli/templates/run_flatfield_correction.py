@@ -1,5 +1,17 @@
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
+os.environ["NUMBA_NUM_THREADS"] = "1"
+
 from mesospim_fractal_tasks.tasks.correct_flatfield_dask import correct_flatfield
 from mesospim_fractal_tasks.utils.models import BaSiCPyModelParams
+
+
+
 
 ###############################################################################
 # Set the parameters of the task function
@@ -30,11 +42,15 @@ basicpy_params = {
     "get_darkfield": True,
     "smoothness_darkfield": 1,                         # Increase for smoother results
     "smoothness_flatfield": 1,                         # Increase for smoother results
-    "working_size": 400                                # Impacts memory usage
+    "working_size": [400]                                # Impacts memory usage
 }
+
+# e.g. True or False, whether to erase the source image after correction
+erase_source_image = False
 
 
 ###############################################################################
+
 
 
 

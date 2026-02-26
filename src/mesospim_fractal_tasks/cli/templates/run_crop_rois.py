@@ -1,3 +1,12 @@
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
+os.environ["NUMBA_NUM_THREADS"] = "1"
+
 from mesospim_fractal_tasks.tasks.crop_regions_of_interest_dask import crop_regions_of_interest
 
 
@@ -26,6 +35,9 @@ chunksize = None
 # e.g. True or False, whether to overwrite existing ROIs
 overwrite = False
 
+# e.g. True or False, whether to erase the source image after correction
+erase_source_image = False
+
 ###############################################################################
 
 
@@ -39,7 +51,7 @@ if __name__ == "__main__":
         roi_table_name=roi_table_name,
         crop_or_roi=crop_or_roi,
         num_levels=num_levels,
-        coarsening_xy=coarsening_xy,
         chunksize=chunksize,
-        overwrite=overwrite
+        overwrite=overwrite,
+        erase_source_image=erase_source_image
     )

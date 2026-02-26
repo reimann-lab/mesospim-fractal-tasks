@@ -121,219 +121,6 @@ def parallel_block_processing(
                     break
                 in_flight.add(ex.submit(_worker, bid))
 
-def phase_correlation_registration(
-    fixed_data,
-    moving_data,
-    disambiguate_region_mode=None,
-    **skimage_phase_corr_kwargs,
-):
-    """
-    Phase correlation registration using a modified version of skimage's
-    phase_cross_correlation function.
-
-    Parameters
-    ----------
-    fixed_data : array-like
-    moving_data : array-like
-
-    Returns
-    -------
-    dict
-        'affine_matrix' : array-like
-            Homogeneous transformation matrix.
-        'quality' : float
-            Quality metric.
-    """
-
-    im0 = fixed_data.data
-    im1 = moving_data.data
-    ndim = im0.ndim
-
-    # normalize images
-    im0, im1 = (
-        rescale_intensity(
-            im,
-            in_range=(np.nanmin(im), np.nanmax(im)),
-            out_range=(0, 1),
-        )
-        for im in [im0, im1]
-    )
-
-    im0nm = np.isnan(im0)
-    im1nm = np.isnan(im1)
-
-    # use intersection mode if there are nan pixels in either image
-    if disambiguate_region_mode is None:
-        if np.any([im0nm, im1nm]):
-            disambiguate_region_mode = "intersection"
-        else:
-            disambiguate_region_mode = "union"
-
-    valid_pixels1 = np.sum(~im1nm)
-
-    if np.any([im0nm, im1nm]):
-        im0nn = np.nan_to_num(im0)
-        im1nn = np.nan_to_num(im1)
-    else:
-        im0nn = im0
-        im1nn = im1
-
-    if "upsample_factor" not in skimage_phase_corr_kwargs:
-        skimage_phase_corr_kwargs["upsample_factor"] = 10 if ndim == 2 else 2
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
-
-        # strategy: compute phase correlation with and without
-        # normalization and keep the one with the highest
-        # structural similarity score during manual "disambiguation"
-        # (which should be a metric orthogonal to the corr coef)
-
-        shift_candidates = []
-        for normalization in ["phase", None]:
-            shift_candidates.append(
-                phase_cross_correlation(
-                    im0nn,
-                    im1nn,
-                    disambiguate=False,
-                    normalization=normalization,
-                    **skimage_phase_corr_kwargs,
-                )[0]
-            )
-
-        if np.any([im0nm, im1nm]):
-            shift_candidates.append(
-                phase_cross_correlation(
-                    im0,
-                    im1,
-                    reference_mask=~im0nm,
-                    moving_mask=~im1nm,
-                    disambiguate=False,
-                    **skimage_phase_corr_kwargs,
-                )[0]
-            )
-
-    # disambiguate shift manually
-    # there seems to be a problem with the scikit-image implementation
-    # of disambiguate_shift, but this needs to be checked
-
-    # assume that the shift along any dimension isn't larger than the overlap
-    # in the dimension with smallest overlap
-    # e.g. if overlap is 50 pixels in x and 200 pixels in y, assume that
-    # the shift along x and y is smaller than 50 pixels
-    max_shift_per_dim = np.min([im.shape for im in [im0, im1]])
-
-    data_range = np.nanmax([im0, im1]) - np.nanmin([im0, im1])
-    im1_min = np.nanmin(im1)
-
-    disambiguate_metric_vals = []
-    quality_metric_vals = []
-
-    t_candidates = []
-    for shift_candidate in shift_candidates:
-        for s in np.ndindex(
-            tuple([1 if shift_candidate[d] == 0 else 4 for d in range(ndim)])
-        ):
-            t_candidate = []
-            for d in range(ndim):
-                if s[d] == 0:
-                    t_candidate.append(shift_candidate[d])
-                elif s[d] == 1:
-                    t_candidate.append(-shift_candidate[d])
-                elif s[d] == 2:
-                    t_candidate.append(-(shift_candidate[d] - im1.shape[d]))
-                elif s[d] == 3:
-                    t_candidate.append(-shift_candidate[d] - im1.shape[d])
-            if np.max(np.abs(t_candidate)) < max_shift_per_dim:
-                t_candidates.append(t_candidate)
-
-    if not len(t_candidates):
-        t_candidates = [[np.float32(0) for i in range(ndim)]]
-
-    def get_bb_from_nanmask(mask):
-        bbs = []
-        for idim in range(mask.ndim):
-            axes = list(range(mask.ndim))
-            axes.remove(idim)
-            valids = np.where(np.max(mask, axis=tuple(axes)))
-            bbs.append([np.min(valids), np.max(valids)])
-        return bbs
-
-    im0_bb = get_bb_from_nanmask(~im0nm)
-
-    for t_ in t_candidates:
-        im1t = ndimage.affine_transform(
-            im1,
-            param_utils.affine_from_translation(list(t_)),
-            order=1,
-            mode="constant",
-            cval=np.nan,
-        )
-        mask = ~np.isnan(im1t) * ~im0nm
-
-        if np.all(~mask) or float(np.sum(mask)) / valid_pixels1 < 0.1:
-            disambiguate_metric_val = -1
-            quality_metric_val = -1
-        else:
-            im1t_bb = get_bb_from_nanmask(~np.isnan(im1t))
-
-            if disambiguate_region_mode == "union":
-                mask_slices = tuple(
-                    [
-                        slice(
-                            min(im0_bb[idim][0], im1t_bb[idim][0]),
-                            max(im0_bb[idim][1], im1t_bb[idim][1]) + 1,
-                        )
-                        for idim in range(ndim)
-                    ]
-                )
-            elif disambiguate_region_mode == "intersection":
-                mask_slices = tuple(
-                    [
-                        slice(
-                            max(im0_bb[idim][0], im1t_bb[idim][0]),
-                            min(im0_bb[idim][1], im1t_bb[idim][1]) + 1,
-                        )
-                        for idim in range(ndim)
-                    ]
-                )
-
-            if np.nanmax(im1t[mask_slices]) <= im1_min:
-                disambiguate_metric_val = -1
-                quality_metric_val = -1
-                continue
-
-            # structural similarity seems to be better than
-            # correlation for disambiguation (need to solidify this)
-            min_shape = np.min(im0[mask_slices].shape)
-            ssim_win_size = np.min([7, min_shape - ((min_shape - 1) % 2)])
-            if ssim_win_size < 3 or np.max(im1t[mask_slices]) <= im1_min:
-                logger.debug("SSIM window size too small")
-                disambiguate_metric_val = -1
-            else:
-                disambiguate_metric_val = structural_similarity(
-                    np.nan_to_num(im0[mask_slices]),
-                    np.nan_to_num(im1t[mask_slices]),
-                    data_range=data_range,
-                    win_size=ssim_win_size,
-                )
-            # spearman seems to be better than structural_similarity
-            # for filtering out bad links between views
-            quality_metric_val = link_quality_metric_func(
-                im0[mask], im1t[mask] - 1
-            )
-
-        disambiguate_metric_vals.append(disambiguate_metric_val)
-        quality_metric_vals.append(quality_metric_val)
-    argmax_index = np.nanargmax(disambiguate_metric_vals)
-    t = t_candidates[argmax_index]
-
-    reg_result = {}
-    reg_result["affine_matrix"] = param_utils.affine_from_translation(t)
-    reg_result["quality"] = quality_metric_vals[argmax_index]
-
-    return reg_result
-
 def fuse_one_block_worker(block_id, *, meta: dict, fuse_kwargs: dict):
     """
     Fuse a single block and write it to the existing Zarr array.
@@ -495,21 +282,21 @@ def prepare_block_fusion(
 
 def fuse(
     sims: list,
-    transform_key: str = None,
+    transform_key: Optional[str] = None,
     fusion_func: Callable = weighted_average_fusion,
-    fusion_method_kwargs: dict = None,
-    weights_func: Callable = None,
-    weights_func_kwargs: dict = None,
+    fusion_method_kwargs: Optional[dict] = None,
+    weights_func: Optional[Callable] = None,
+    weights_func_kwargs: Optional[dict] = None,
     drop_t: bool = False,
-    output_spacing: dict[str, float] = None,
+    output_spacing: Optional[dict[str, float]] = None,
     output_stack_mode: str = "union",
-    output_origin: dict[str, float] = None,
-    output_shape: dict[str, int] = None,
-    output_stack_properties: BoundingBox = None,
-    output_chunksize: Union[int, dict[str, int]] = None,
-    overlap_in_pixels: int = None,
+    output_origin: Optional[dict[str, float]] = None,
+    output_shape: Optional[dict[str, int]] = None,
+    output_stack_properties: Optional[BoundingBox] = None,
+    output_chunksize: Optional[Union[int, dict[str, int]]] = None,
+    overlap_in_pixels: Optional[int] = None,
     interpolation_order: int = 1,
-    blending_widths: dict[str, float] = None,
+    blending_widths: Optional[dict[str, float]] = None,
     output_zarr_url: str | None = None,
     zarr_options: dict | None = None,
     batch_options: dict | None = None,
@@ -748,7 +535,7 @@ def fuse(
 
     # calculate output chunk bounding boxes
     output_chunk_bbs, block_indices = mv_graph.get_chunk_bbs(
-        output_stack_properties, output_chunksize
+        output_stack_properties, output_chunksize # type: ignore
     )
 
     # add overlap to output chunk bounding boxes
@@ -756,14 +543,14 @@ def fuse(
         output_chunk_bb
         | {
             "origin": {
-                dim: output_chunk_bb["origin"][dim]
-                - overlap_in_pixels * output_stack_properties["spacing"][dim]
-                for dim in sdims
+                dim: output_chunk_bb["origin"][dim] # type: ignore
+                - overlap_in_pixels * output_stack_properties["spacing"][dim]  # type: ignore
+                for dim in sdims 
             }
-        }
+        } # type: ignore
         | {
             "shape": {
-                dim: output_chunk_bb["shape"][dim] + 2 * overlap_in_pixels
+                dim: output_chunk_bb["shape"][dim] + 2 * overlap_in_pixels # type: ignore
                 for dim in sdims
             }
         }
@@ -985,6 +772,218 @@ def fuse(
 
     return res
 
+def phase_correlation_registration(
+    fixed_data,
+    moving_data,
+    disambiguate_region_mode=None,
+    **skimage_phase_corr_kwargs,
+):
+    """
+    Phase correlation registration using a modified version of skimage's
+    phase_cross_correlation function.
+
+    Parameters
+    ----------
+    fixed_data : array-like
+    moving_data : array-like
+
+    Returns
+    -------
+    dict
+        'affine_matrix' : array-like
+            Homogeneous transformation matrix.
+        'quality' : float
+            Quality metric.
+    """
+
+    im0 = fixed_data.data
+    im1 = moving_data.data
+    ndim = im0.ndim
+
+    # normalize images
+    im0, im1 = (
+        rescale_intensity(
+            im,
+            in_range=(np.nanmin(im), np.nanmax(im)),
+            out_range=(0, 1),
+        )
+        for im in [im0, im1]
+    )
+
+    im0nm = np.isnan(im0)
+    im1nm = np.isnan(im1)
+
+    # use intersection mode if there are nan pixels in either image
+    if disambiguate_region_mode is None:
+        if np.any([im0nm, im1nm]):
+            disambiguate_region_mode = "intersection"
+        else:
+            disambiguate_region_mode = "union"
+
+    valid_pixels1 = np.sum(~im1nm)
+
+    if np.any([im0nm, im1nm]):
+        im0nn = np.nan_to_num(im0)
+        im1nn = np.nan_to_num(im1)
+    else:
+        im0nn = im0
+        im1nn = im1
+
+    if "upsample_factor" not in skimage_phase_corr_kwargs:
+        skimage_phase_corr_kwargs["upsample_factor"] = 10 if ndim == 2 else 2
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+        # strategy: compute phase correlation with and without
+        # normalization and keep the one with the highest
+        # structural similarity score during manual "disambiguation"
+        # (which should be a metric orthogonal to the corr coef)
+
+        shift_candidates = []
+        for normalization in ["phase", None]:
+            shift_candidates.append(
+                phase_cross_correlation(
+                    im0nn,
+                    im1nn,
+                    disambiguate=False,
+                    normalization=normalization,
+                    **skimage_phase_corr_kwargs,
+                )[0]
+            )
+
+        if np.any([im0nm, im1nm]):
+            shift_candidates.append(
+                phase_cross_correlation(
+                    im0,
+                    im1,
+                    reference_mask=~im0nm,
+                    moving_mask=~im1nm,
+                    disambiguate=False,
+                    **skimage_phase_corr_kwargs,
+                )[0]
+            )
+
+    # disambiguate shift manually
+    # there seems to be a problem with the scikit-image implementation
+    # of disambiguate_shift, but this needs to be checked
+
+    # assume that the shift along any dimension isn't larger than the overlap
+    # in the dimension with smallest overlap
+    # e.g. if overlap is 50 pixels in x and 200 pixels in y, assume that
+    # the shift along x and y is smaller than 50 pixels
+    max_shift_per_dim = np.min([im.shape for im in [im0, im1]])
+
+    data_range = np.nanmax([im0, im1]) - np.nanmin([im0, im1])
+    im1_min = np.nanmin(im1)
+
+    disambiguate_metric_vals = []
+    quality_metric_vals = []
+
+    t_candidates = []
+    for shift_candidate in shift_candidates:
+        for s in np.ndindex(
+            tuple([1 if shift_candidate[d] == 0 else 4 for d in range(ndim)])
+        ):
+            t_candidate = []
+            for d in range(ndim):
+                if s[d] == 0:
+                    t_candidate.append(shift_candidate[d])
+                elif s[d] == 1:
+                    t_candidate.append(-shift_candidate[d])
+                elif s[d] == 2:
+                    t_candidate.append(-(shift_candidate[d] - im1.shape[d]))
+                elif s[d] == 3:
+                    t_candidate.append(-shift_candidate[d] - im1.shape[d])
+            if np.max(np.abs(t_candidate)) < max_shift_per_dim:
+                t_candidates.append(t_candidate)
+
+    if not len(t_candidates):
+        t_candidates = [[np.float32(0) for i in range(ndim)]]
+
+    def get_bb_from_nanmask(mask):
+        bbs = []
+        for idim in range(mask.ndim):
+            axes = list(range(mask.ndim))
+            axes.remove(idim)
+            valids = np.where(np.max(mask, axis=tuple(axes)))
+            bbs.append([np.min(valids), np.max(valids)])
+        return bbs
+
+    im0_bb = get_bb_from_nanmask(~im0nm)
+
+    for t_ in t_candidates:
+        im1t = ndimage.affine_transform(
+            im1,
+            param_utils.affine_from_translation(list(t_)),
+            order=1,
+            mode="constant",
+            cval=np.nan,
+        )
+        mask = ~np.isnan(im1t) * ~im0nm
+
+        if np.all(~mask) or float(np.sum(mask)) / valid_pixels1 < 0.1:
+            disambiguate_metric_val = -1
+            quality_metric_val = -1
+        else:
+            im1t_bb = get_bb_from_nanmask(~np.isnan(im1t))
+
+            if disambiguate_region_mode == "union":
+                mask_slices = tuple(
+                    [
+                        slice(
+                            min(im0_bb[idim][0], im1t_bb[idim][0]),
+                            max(im0_bb[idim][1], im1t_bb[idim][1]) + 1,
+                        )
+                        for idim in range(ndim)
+                    ]
+                )
+            elif disambiguate_region_mode == "intersection":
+                mask_slices = tuple(
+                    [
+                        slice(
+                            max(im0_bb[idim][0], im1t_bb[idim][0]),
+                            min(im0_bb[idim][1], im1t_bb[idim][1]) + 1,
+                        )
+                        for idim in range(ndim)
+                    ]
+                )
+
+            if np.nanmax(im1t[mask_slices]) <= im1_min:
+                disambiguate_metric_val = -1
+                quality_metric_val = -1
+                continue
+
+            # structural similarity seems to be better than
+            # correlation for disambiguation (need to solidify this)
+            min_shape = np.min(im0[mask_slices].shape)
+            ssim_win_size = np.min([7, min_shape - ((min_shape - 1) % 2)])
+            if ssim_win_size < 3 or np.max(im1t[mask_slices]) <= im1_min:
+                logger.debug("SSIM window size too small")
+                disambiguate_metric_val = -1
+            else:
+                disambiguate_metric_val = structural_similarity(
+                    np.nan_to_num(im0[mask_slices]),
+                    np.nan_to_num(im1t[mask_slices]),
+                    data_range=data_range,
+                    win_size=ssim_win_size,
+                )
+            # spearman seems to be better than structural_similarity
+            # for filtering out bad links between views
+            quality_metric_val = link_quality_metric_func(
+                im0[mask], im1t[mask] - 1
+            )
+
+        disambiguate_metric_vals.append(disambiguate_metric_val)
+        quality_metric_vals.append(quality_metric_val)
+    argmax_index = np.nanargmax(disambiguate_metric_vals)
+    t = t_candidates[argmax_index]
+
+    reg_result = {}
+    reg_result["affine_matrix"] = param_utils.affine_from_translation(t)
+    reg_result["quality"] = quality_metric_vals[argmax_index]
+
+    return reg_result
 
 # --- Monkey-patch get_sim_from_array ---
 def patched_get_sim_from_array(
@@ -1183,6 +1182,19 @@ class StitchingChannelInputModel(ChannelInputModel):
         label: Name of the channel. Can only be specified if wavelength_id is
             not set.
     """
+    def verify_label(self, zarr_url) -> None:
+        if self.label is not None:
+            channels = get_omero_channel_list(image_zarr_path=zarr_url)
+            concat_labels = " ".join([c.label for c in channels])
+            if self.label.lower() not in concat_labels.lower():
+                raise ValueError(
+                    f"Label {self.label} not found in {Path(zarr_url).name}."
+                )
+            else:
+                for c in channels:
+                    if self.label.lower() in c.label.lower():
+                        self.label = c.label
+                        break
 
     def get_omero_channel(self, zarr_url) -> OmeroChannel:
         """Get the omero channel from the zarr url"""

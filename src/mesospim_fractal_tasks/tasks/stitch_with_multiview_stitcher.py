@@ -166,6 +166,7 @@ def stitch_with_multiview_stitcher(
     logger.info(f"Registration spatial dimsensions: {reg_spatial_dims}")
 
     # Find channel index
+    channel.verify_label(zarr_path)
     omero_channel = channel.get_omero_channel(zarr_path)
     if omero_channel:
         reg_channel_index = omero_channel.index

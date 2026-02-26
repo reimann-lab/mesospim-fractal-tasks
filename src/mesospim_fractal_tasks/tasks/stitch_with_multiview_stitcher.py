@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 import os
+import shutil
 from dask.distributed import Client
 import dask.array as da
 
@@ -31,7 +32,8 @@ fusion.fuse = fuse
 registration.phase_correlation_registration = phase_correlation_registration
 
 from mesospim_fractal_tasks.utils.models import DimTuple
-from mesospim_fractal_tasks.utils.zarr_utils import build_pyramid
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    build_pyramid, _get_pyramid_structure)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -50,6 +52,7 @@ def stitch_with_multiview_stitcher(
     pre_registration_pruning_method: str = "keep_axis_aligned",
     max_workers: int = 4,
     fusion_chunksize: Optional[DimTuple] = None,
+    erase_source_image: bool = False,
 ) -> dict[str, list]:
     """Stitches FOVs from an OME-Zarr image.
 
@@ -115,11 +118,13 @@ def stitch_with_multiview_stitcher(
             also corresponds to the chunksize of the output zarr. Setting smaller chunks
             can reduce memory usage but increase the time to fuse the tiles.
             If None, the chunksize of the raw image is used. Default: None.
+        erase_source_image: If `True`, the source image will be erased after stitching.
+            Default: False.
     """
 
     zarr_path = Path(zarr_url)
     logger.info(f"Starting task: `Stitching with Multiview Stitcher` "
-                f"for {zarr_path.parent}/{zarr_path.name}")
+                f"for {zarr_path.parent.name}/{zarr_path.name}")
 
     # Parse and log several NGFF-image metadata attributes
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
@@ -133,6 +138,8 @@ def stitch_with_multiview_stitcher(
     xim_well_reg = get_sim_from_multiscales(
         Path(zarr_url), resolution=registration_resolution_level
     )
+
+    # Keep track of the original chunksize
     original_chunksize = da.from_zarr(zarr_path / "0").chunksize[-3:]
 
     # Determine whether to perform registration on maximum projection in Z
@@ -142,8 +149,6 @@ def stitch_with_multiview_stitcher(
         for dim in ["z", "y", "x"]:
             if overlap_tolerance[dim] is None:
                 overlap_tolerance[dim] = 0
-            else:
-                overlap_tolerance[dim] = overlap_tolerance[dim]
     if registration_on_z_proj:
         xim_well_reg = xim_well_reg.max("z")
         overlap_tolerance["z"] = None
@@ -255,7 +260,6 @@ def stitch_with_multiview_stitcher(
 
     sims = [msi_utils.get_sim_from_msim(msim) for msim in msims_fusion]
     sdims = si_utils.get_spatial_dims_from_sim(xim_well)
-    ndim = len(sdims)
 
     fusion_chunksize_dict = {
         dim: cs for dim, cs in zip(sdims, fusion_chunks)
@@ -291,13 +295,10 @@ def stitch_with_multiview_stitcher(
     logger.info("Start building multi-resolution pyramid.")
     with _set_dask_cluster(n_workers=4) as cluster:
         with Client(cluster) as client:
+            pyramid_dict = _get_pyramid_structure(zarr_path)
             build_pyramid(
                 zarr_url=output_zarr_path,
-                overwrite=True,
-                num_levels=ngff_image_meta.num_levels,
-                chunksize=original_chunksize,
-                coarsening_xy=ngff_image_meta.coarsening_xy,
-                open_array_kwargs={"write_empty_chunks": False, "fill_value": 0},
+                pyramid_dict=pyramid_dict
             )
             logger.info("Finished building resolution pyramid")
 
@@ -347,6 +348,10 @@ def stitch_with_multiview_stitcher(
     source_attrs["fractal_tasks"] = fractal_tasks
     new_group.attrs.put(source_attrs)
     logger.info("Finished copying NGFF metadata.")
+
+    if erase_source_image:
+        logger.info("Erasing source image...")
+        shutil.rmtree(zarr_path)
 
     # Prepare the image list update
     image_list_updates = dict(

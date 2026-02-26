@@ -8,6 +8,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
+import shutil
 from typing import  Any
 from pydantic import validate_call
 import numpy as np
@@ -25,10 +26,11 @@ from scipy.ndimage import gaussian_filter1d
 from mesospim_fractal_tasks.utils.zarr_utils import (
     _determine_optimal_contrast,
     _update_omero_channels,
-    create_zarr_pyramid)
+    create_zarr_pyramid,
+    _get_pyramid_structure,
+    build_pyramid)
 from mesospim_fractal_tasks.utils.parallelisation import (
     _set_dask_cluster,
-    build_pyramid_per_channel,
     correct_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -71,9 +73,6 @@ def compute_z_correction_profile(
                  "for all FOVs.")
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     num_levels = ngff_image_meta.num_levels
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
     channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
 
     z_profile_percentile = []
@@ -265,6 +264,7 @@ def correct_illumination(
     *,
     zarr_url: str,
     z_correction: bool = False,
+    erase_source_image: bool = False,
 ) -> dict[str, Any]:
     """
     Perform a global illumination correction on a multi-channel OME-Zarr image. 
@@ -277,6 +277,7 @@ def correct_illumination(
         zarr_url (str): Path or url to the individual OME-Zarr image to be processed.
             (standard argument for Fractal tasks, managed by Fractal server).
         z_correction (bool): Whether to correct for Z band artifacts.
+        erase_source_image (bool): Whether to erase the source image after correction.
 
     Returns:
         dict: A dictionary containing the updated image list.
@@ -287,9 +288,6 @@ def correct_illumination(
     new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
     logger.info(f"Start task: `Illumination Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
-    
-    # Create zarr pyramid
-    create_zarr_pyramid(zarr_path, new_zarr_name = new_zarr_path.name)
     
     # Map channel name to channel index
     channel_dict = {}
@@ -304,12 +302,13 @@ def correct_illumination(
     # Get relevant metadata
     image_array = da.from_zarr(zarr_path / "0")
     ngff_image_meta = load_NgffImageMeta(zarr_url)
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
+    pyramid_dict = _get_pyramid_structure(zarr_path)
     num_levels = ngff_image_meta.num_levels
     full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
     z_chunk = image_array.chunks[1][0]
+
+    # Create zarr pyramid
+    create_zarr_pyramid(zarr_path, new_zarr_name = new_zarr_path.name, pyramid_dict=pyramid_dict)
 
     gain_factors = {}
     z_profile = {}
@@ -356,13 +355,11 @@ def correct_illumination(
             futures = []
             for channel_name, channel_idx in channel_dict.items():
                 fut = client.submit(
-                    build_pyramid_per_channel,
-                    new_zarr_path=new_zarr_path,
+                    build_pyramid,
+                    zarr_url=new_zarr_path,
+                    pyramid_dict=pyramid_dict,
                     channel_index=channel_idx,
                     channel_name=channel_name,
-                    num_levels=num_levels,
-                    coarsening_xy=coarsening_xy,
-                    chunksize=image_array.chunksize,
                     pure=False,
                     retries=1
                 )
@@ -396,6 +393,10 @@ def correct_illumination(
                                                   num_levels, 
                                                   segment_sample=True)
     _update_omero_channels(new_zarr_path, {"window": contrast_limits})
+
+    if erase_source_image:
+        logger.info("Erasing source image...")
+        shutil.rmtree(zarr_path)
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

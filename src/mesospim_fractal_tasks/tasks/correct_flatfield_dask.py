@@ -20,6 +20,7 @@ import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic import Field, validate_call
@@ -31,14 +32,14 @@ import zarr
 from scipy.ndimage import zoom
 from dask_image import ndfilters
 
-from mesospim_fractal_tasks.utils.models import (BaSiCPyModelParams, IlluminationModel)
+from mesospim_fractal_tasks.utils.models import (
+    BaSiCPyModelParams, IlluminationModel)
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
-from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast,
-                                                     _update_omero_channels,
-                                                     create_zarr_pyramid)
-from mesospim_fractal_tasks.utils.parallelisation import (_set_dask_cluster,
-                                                          correct_per_channel,
-                                                          build_pyramid_per_channel)
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    _determine_optimal_contrast, _update_omero_channels, 
+    create_zarr_pyramid, _get_pyramid_structure, build_pyramid)
+from mesospim_fractal_tasks.utils.parallelisation import (
+    _set_dask_cluster, correct_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.roi import convert_ROI_table_to_indices
@@ -272,7 +273,6 @@ def collect_fovs(
 
 def correct_FOV(
     FOV_dask: da.Array,
-    i_FOV: int,
     illum_profiles: IlluminationModel,
 ) -> da.Array:
     """
@@ -368,8 +368,7 @@ def get_non_default_params(
     return changed_params
 
 def define_FOV_list(
-    zarr_path: Path,
-    z_levels: Optional[list[int]],
+    zarr_path: Path
 ) -> list[int]:
     
     FOV_list = []
@@ -402,7 +401,8 @@ def correct_flatfield(
     resolution_level: Optional[int] = None,
     n_zplanes: int = 200,
     basicpy_model_params: Optional[BaSiCPyModelParams] = Field(
-        default_factory=BaSiCPyModelParams)
+        default_factory=BaSiCPyModelParams),
+    erase_source_image: bool = False
 ) -> dict[str, list]:
 
     """
@@ -436,15 +436,14 @@ def correct_flatfield(
             for a good fit. If using empty FOVs, at least 50 is recommended. Default: 200.
         basicpy_model_params: Parameters for the BaSiC model. See documentation
             for more information. Default: None.
+        erase_source_image: If `True`, the source image will be erased after the flatfield
+            correction. Default: False.
     """
 
     zarr_path = Path(zarr_url)
     new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     logger.info(f"Start task: `Flatfield Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
-    
-    # Create zarr pyramid
-    create_zarr_pyramid(zarr_path, new_zarr_name=new_zarr_path.name)
     
     # Map channel name to channel index
     channel_dict = {}
@@ -471,9 +470,10 @@ def correct_flatfield(
     pxl_sizes_yx = ngff_image_meta.get_pixel_sizes_zyx(
         level=resolution_level)[1:]
     full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
+    pyramid_dict = _get_pyramid_structure(zarr_path)
+
+    # Create new zarr pyramid
+    create_zarr_pyramid(zarr_path, new_zarr_name=new_zarr_path.name, pyramid_dict=pyramid_dict)
 
     # Lazily load highest-res level from original zarr array
     image_arr = da.from_zarr(Path(zarr_path, "0"))
@@ -619,13 +619,11 @@ def correct_flatfield(
             futures = []
             for channel_name, channel_idx in channel_dict.items():
                 fut = client.submit(
-                    build_pyramid_per_channel,
-                    new_zarr_path=new_zarr_path,
+                    build_pyramid,
+                    zarr_url=new_zarr_path,
+                    pyramid_dict=pyramid_dict,
                     channel_index=channel_idx,
                     channel_name=channel_name,
-                    num_levels=num_levels,
-                    coarsening_xy=coarsening_xy,
-                    chunksize=image_arr.chunksize,
                     pure=False,
                     retries=1
                 )
@@ -674,6 +672,11 @@ def correct_flatfield(
                                  origin=str(zarr_path),
                                  attributes=dict(image=new_zarr_path.name))]
         )
+    
+    if erase_source_image:
+        logger.info("Erasing source image...")
+        shutil.rmtree(zarr_path)
+
     return image_list_updates
 
 if __name__ == "__main__":

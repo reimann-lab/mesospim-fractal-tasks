@@ -8,6 +8,7 @@ os.environ["NUMEXPR_NUM_THREADS"] = "1"
 import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
+import shutil
 import logging
 from pathlib import Path
 import zarr
@@ -158,9 +159,8 @@ def save_roi_parallel(
     roi_id: str,
     coords: dict[str, int],
     scale: tuple[float, float, float],
-    num_levels: int,
+    pyramid_dict: dict[str, dict],
     chunksize: tuple[int, int, int, int],
-    coarsening_xy: int,
     crop_or_roi: str,
 ) -> None:
     """
@@ -171,9 +171,8 @@ def save_roi_parallel(
         roi_id (str): ID of the ROI to save.
         coords (dict[str, int]): Coordinates of the ROI to save.
         scale (tuple[float, float, float]): Pixel scale in um.
-        num_levels (int): Number of pyramid levels.
+        pyramid_dict (dict[str, dict]): Dictionary containing the scale and coarsening factors for each level.
         chunksize (tuple[int, int, int]): Chunk size to use for the new ROI image(s).
-        coarsening_xy (int): Coarsening factor in XY for the ROI image.
         crop_or_roi (str): Whether the ROI is a crop or a ROI.
     """
     full_res_arr = da.from_zarr(zarr_path/"0")
@@ -187,12 +186,12 @@ def save_roi_parallel(
                                                     coords['y_end'] + scale[1], 
                                                     full_shape[2], # type: ignore
                                                     scale[1],
-                                                    power=num_levels)
+                                                    power=len(pyramid_dict))
     x_start, x_end = check_binary_compatibility(max(coords['x_start'], 0),
                                                     coords['x_end'] + scale[2],
                                                     full_shape[3], # type: ignore
                                                     scale[2],
-                                                    power=num_levels)
+                                                    power=len(pyramid_dict))
 
     assert z_start < z_end
     assert y_start < y_end
@@ -215,7 +214,9 @@ def save_roi_parallel(
             dtype=full_res_arr.dtype,
             store=zarr.storage.FSStore(f"{roi_path}/0"), # type: ignore
             overwrite=True,
-            dimension_separator="/"
+            dimension_separator="/",
+            fill_value=0,
+            write_empty_chunks=False,
     )
     z_chunk = chunksize[1]
     for z in range(0, z_end-z_start, z_chunk):
@@ -248,33 +249,23 @@ def save_roi_parallel(
     }
     multiscales = roi_group.attrs["multiscales"]
     multiscales[0]["name"] = roi_id
-    print(num_levels)
-    len_datasets = len(multiscales[0]["datasets"])
-    roi_datasets = [multiscales[0]["datasets"][i] \
-                    for i in range(min(len_datasets, num_levels))]
-    print(roi_datasets)
-    print(len_datasets)
-    multiscales[0]["datasets"] = roi_datasets
-    if len_datasets < num_levels:
-        last_scale = roi_datasets[-1]["coordinateTransformations"][0]["scale"]
-        for i in range(len_datasets, num_levels):
-            last_scale = last_scale[0], last_scale[1], last_scale[2] * 2, last_scale[3] * 2
-            roi_datasets.append(
-                {
-                    "coordinateTransformations": [
-                        {
-                            "scale": [
-                                last_scale[0],
-                                last_scale[1],
-                                last_scale[2],
-                                last_scale[3]
-                            ],
-                            "type": "scale"
-                        }
-                    ],
-                    "path": str(i)
-                })
-
+    roi_datasets = []
+    for key in pyramid_dict.keys():
+        roi_datasets.append(
+            {
+                "coordinateTransformations": [
+                    {
+                        "scale": [
+                            1.0,
+                            pyramid_dict[key]["scale"][0],
+                            pyramid_dict[key]["scale"][1],
+                            pyramid_dict[key]["scale"][2]
+                        ],
+                        "type": "scale"
+                    }
+                ],
+                "path": key
+            })
     multiscales[0]["datasets"] = roi_datasets
     roi_group.attrs["multiscales"] = multiscales
 
@@ -315,9 +306,9 @@ def crop_regions_of_interest(
     crop_or_roi: str = "roi",
     roi_table_name: str = "roi_coords",
     num_levels: Optional[int] = None,
-    coarsening_xy: Optional[int] = None,
     chunksize: Optional[DimTuple] = None,
     overwrite: bool = False,
+    erase_source_image: bool = False,
 ) -> Dict[str, Any]:
     """
     Crop regions of interest from a multi-channel OME-Zarr image. It loads the full
@@ -338,12 +329,12 @@ def crop_regions_of_interest(
         num_levels: Number of pyramid levels to generate for the ROI image (including 
             the full resolution image). If not provided, the same multi-resolution
             pyramid size as the original image will be used. Default: None.
-        coarsening_xy: Coarsening factor in XY for the ROI image. Optional, if different
-            from the coarsening factor used for the full resolution image. Default: 2.
         chunksize: Chunk size to use for the new ROI image(s). If None, the chunksize
             of the original image will be used. Default: None.
         overwrite: Whether to overwrite existing ROI images if they already exist 
             in the OME-Zarr folder. Default: False.
+        erase_source_image: If `True`, the source image will be erased after cropping.
+            It only works if `crop_or_roi` is set to `crop`. Default: False.
      """
     zarr_path = Path(zarr_url)
     logger.info(f"Start task: `Crop Region of Interest` "
@@ -361,12 +352,8 @@ def crop_regions_of_interest(
                 chunk_size[(i+1)] = int(chunksize[dim])
     chunk_size = tuple(chunk_size)
     logger.info(f"Chunksize set to: {chunk_size}")
-    if coarsening_xy is None:
-        coarsening_xy = image_meta.coarsening_xy
-        if coarsening_xy is None:
-            coarsening_xy = 2
 
-    # Read ROI coordinates
+    # Find coordinates table in OME-Zarr
     logger.info("Loading ROI coordinates table.")
     if roi_table_name is None:
         roi_table_path = Path("roi_coords.csv")
@@ -424,19 +411,16 @@ def crop_regions_of_interest(
         roi_path = Path(zarr_path.parent, str(roi_id))
         logger.info(f"New ROI will be saved with name {roi_id}.")
         roi_coords = roi_row.to_dict()
-        if num_levels is None:
-            shape = (full_res_arr.shape[0], 
-                     full_res_arr.shape[1], 
-                     full_res_arr.shape[2], 
-                     full_res_arr.shape[3])
-            num_levels = _estimate_pyramid_depth(shape, roi_coords, tuple(scale))
-            #num_levels = image_meta.num_levels
+        shape = (
+            full_res_arr.shape[0], full_res_arr.shape[1], full_res_arr.shape[2], full_res_arr.shape[3])
+        pyramid_dict = _estimate_pyramid_depth(
+            shape, scale=tuple(scale), roi_coords=roi_coords, num_levels=num_levels)
         parallelisation_list.append(
             dict(
                 roi_id=roi_id,
                 roi_coords=roi_coords,
                 roi_path=roi_path,
-                roi_num_levels=num_levels
+                roi_pyramid=pyramid_dict
             )
         )
         image_list_updates.append(dict(zarr_url=str(roi_path), 
@@ -450,29 +434,30 @@ def crop_regions_of_interest(
                 crop_id = parallelisation_list[0]["roi_id"]
                 crop_coords = parallelisation_list[0]["roi_coords"]
                 crop_path = parallelisation_list[0]["roi_path"]
-                num_levels = parallelisation_list[0]["roi_num_levels"]
+                pyramid_dict = parallelisation_list[0]["roi_pyramid"]
                 save_roi_parallel(zarr_path,
                                 roi_id=crop_id, 
                                 coords=crop_coords, 
                                 scale=tuple(scale),
-                                num_levels=num_levels,
+                                pyramid_dict=pyramid_dict,
                                 chunksize=chunk_size,
-                                coarsening_xy=coarsening_xy,
                                 crop_or_roi=crop_or_roi)
                 
                 # Write pyramid of resolution
                 logger.info(f"Building pyramid of resolution for {crop_path.name}")
                 build_pyramid(
                     zarr_url=crop_path,
-                    overwrite=True,
-                    num_levels=num_levels,
-                    coarsening_xy=coarsening_xy,
-                    chunksize=chunk_size,
+                    pyramid_dict=pyramid_dict
                 )
                 
                 # Re-compute optimal contrast limits for ROI
-                contrast_limits = _determine_optimal_contrast(crop_path, num_levels, segment_sample=True)
+                contrast_limits = _determine_optimal_contrast(crop_path, len(pyramid_dict), segment_sample=True)
                 _update_omero_channels(crop_path, {"window": contrast_limits})
+
+        if erase_source_image:
+            logger.info("Erasing source image...")
+            shutil.rmtree(zarr_path)
+
     else:
         with _set_dask_cluster(n_workers=len(parallelisation_list)) as cluster:
             with Client(cluster) as client:
@@ -484,9 +469,8 @@ def crop_regions_of_interest(
                                 roi_id=roi_params["roi_id"],
                                 coords=roi_params["roi_coords"],
                                 scale=scale,
-                                num_levels=roi_params["roi_num_levels"],
+                                pyramid_dict=roi_params["roi_pyramid"],
                                 chunksize=chunk_size,
-                                coarsening_xy=coarsening_xy,
                                 crop_or_roi=crop_or_roi,
                                 pure=False,
                                 retries=1)
@@ -495,10 +479,7 @@ def crop_regions_of_interest(
                 for _, roi_params in enumerate(parallelisation_list):
                     fut = client.submit(build_pyramid, 
                                 zarr_url=roi_params["roi_path"],
-                                overwrite=True,
-                                num_levels=roi_params["roi_num_levels"],
-                                coarsening_xy=coarsening_xy,
-                                chunksize=chunk_size,
+                                pyramid_dict=roi_params["roi_pyramid"],
                                 pure=False,
                                 retries=1)
                     futures.append(fut)
@@ -508,7 +489,7 @@ def crop_regions_of_interest(
             for _, roi_params in enumerate(parallelisation_list):
                 contrast_limits = _determine_optimal_contrast(
                     roi_params["roi_path"], 
-                    roi_params["roi_num_levels"],
+                    len(roi_params["roi_pyramid"]),
                     segment_sample=True)
                 _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
         
@@ -541,7 +522,7 @@ def crop_regions_of_interest(
                 colors=[
                     {
                         "label-value": 1,
-                        "rgba": [255, 255, 255, 125],
+                        "rgba": [255/255, 255/255, 255/255, 125/255],
                         "label": "roi_mask"
                     }
                 ]

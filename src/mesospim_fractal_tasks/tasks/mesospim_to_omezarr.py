@@ -74,8 +74,7 @@ def load_channel_colors(
 def write_ome_zarr_metadata(
     zarr_group: zarr.Group,
     meta_df: pd.DataFrame,
-    num_levels: int,
-    coarsening_xy: int,
+    pyramid_dict: dict[str, dict],
     contrast_limits: Optional[dict[str, dict[str, int]]] = None,
     input_param: dict[str, Any] = {},
     user_channels_path: str = "default",
@@ -106,20 +105,23 @@ def write_ome_zarr_metadata(
         logger.info("Preparing multiscales metadata...")
         dataset = [
             {
-                "path": str(level),
+                "path": level,
                 "coordinateTransformations": [
                     {
                     "type": "scale",
                     "scale": [
                         1.0,
-                        meta_df.loc[0, "z_scale"],   
-                        meta_df.loc[0, "y_scale"] * coarsening_xy**(level),
-                        meta_df.loc[0, "x_scale"] * coarsening_xy**(level)
+                        pyramid_dict[level]["scale"][0],   
+                        pyramid_dict[level]["scale"][1],
+                        pyramid_dict[level]["scale"][2]
+                        #meta_df.loc[0, "z_scale"],   
+                        #meta_df.loc[0, "y_scale"] * coarsening_xy**(level),
+                        #meta_df.loc[0, "x_scale"] * coarsening_xy**(level)
                         ]
                     }
                 ]
             }
-            for level in range(num_levels)
+            for level in pyramid_dict.keys()
         ]
 
         # Write multiscales metadata
@@ -421,6 +423,8 @@ def convert_raw(
         store=zarr.storage.FSStore(Path(image_path, "0")), # type: ignore
         overwrite=True,
         dimension_separator="/",
+        fill_value=0,
+        write_empty_chunks=False,
     )
     
     for i, channel in enumerate(meta_df["channel"]):
@@ -507,12 +511,14 @@ def convert_tiff(
         shape=(len(raw_image_paths), 
                meta_df.loc[0,"z_n_pixels"], 
                meta_df.loc[0, "y_n_pixels"], 
-               meta_df.loc[0, "x_n_pixels"]),
+               meta_df.loc[0, "x_n_pixels"]), # type: ignore
         chunks=chunk_sizes.get_chunksize(),
         dtype=np.uint16,
         store=zarr.storage.FSStore(Path(image_path, "0")),
         overwrite=True,
         dimension_separator="/",
+        fill_value=0,
+        write_empty_chunks=False,
     )
     
     for i, channel in enumerate(meta_df["channel"]):
@@ -535,9 +541,9 @@ def convert_tiff(
     roi_df.loc[0, "x_micrometer_original"] = 0
     roi_df.loc[0, "y_micrometer_original"] = 0
     roi_df.loc[0, "z_micrometer_original"] = 0
-    roi_df.loc[0, "len_x_micrometer"] = meta_df.loc[0,"x_n_pixels"] * meta_df.loc[0,"x_scale"]
-    roi_df.loc[0, "len_y_micrometer"] = meta_df.loc[0,"y_n_pixels"] * meta_df.loc[0,"y_scale"]
-    roi_df.loc[0, "len_z_micrometer"] = meta_df.loc[0,"z_n_pixels"] * meta_df.loc[0,"z_scale"]
+    roi_df.loc[0, "len_x_micrometer"] = meta_df.loc[0,"x_n_pixels"] * meta_df.loc[0,"x_scale"] # type: ignore
+    roi_df.loc[0, "len_y_micrometer"] = meta_df.loc[0,"y_n_pixels"] * meta_df.loc[0,"y_scale"] # type: ignore
+    roi_df.loc[0, "len_z_micrometer"] = meta_df.loc[0,"z_n_pixels"] * meta_df.loc[0,"z_scale"] # type: ignore
     roi_df.loc[0, "pixel_size_x"] = meta_df.loc[0,"x_scale"]
     roi_df.loc[0, "pixel_size_y"] = meta_df.loc[0,"y_scale"]
     roi_df.loc[0, "pixel_size_z"] = meta_df.loc[0,"z_scale"]
@@ -608,6 +614,8 @@ def convert_h5_multitile(
         store=zarr.storage.FSStore(Path(image_path, "0")),
         overwrite=True,
         dimension_separator="/",
+        fill_value=0,
+        write_empty_chunks=False,
     )
     logger.info(f"Creating zarr dataset of size {nb_channels} x" \
             f" {z_pixels} x {final_y_pixels} x {final_x_pixels} to store h5 tiles.")
@@ -840,10 +848,8 @@ def mesospim_to_omezarr(
     image_name: Optional[str] = None,
     metadata_file: Optional[str] = None,
     channel_color_file: str = "default",
-    exclusion_list: list[int] = [],
-    num_levels: int = 7,
-    coarsening_factor: int = 2,
-    chunksize: tuple[int, int, int] = (64, 256, 256),
+    num_levels: Optional[int] = None,
+    chunksize: tuple[int, int, int] = (64, 1024, 1024),
     overwrite: bool = False
 ) -> dict[str, Any]:
     """
@@ -869,16 +875,12 @@ def mesospim_to_omezarr(
         channel_color_file (str): Path to a JSON file or keyword identifying the JSON 
             file among provided defaults containing the channel colors information. 
             Default: "default".
-        exclusion_list (list[int]): List of tiles to exclude from being converted, e.g.
-            empty signal tiles. Default: [].
         num_levels (int): Number of pyramid levels (including the full resolution level, 
-            so if you want no pyramid, then num_levels=1). For a 1Tb dataset, it is 
-            recommended to have at least num_levels=6. Default: 6.
+            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is 
+            recommended to have at least 6 levels. If not provided, the code will estimate
+            the optimal pyramid depth based on the size of the image. Default: None.
         chunksize (tuple[int, int, int]): Chunk size to use for the OME-Zarr image.
-            Default: (16, 256, 256).
-        coarsening_factor (int): Coarsening factor to apply to the pyramid. New pyramid
-            resolution level will have an image with X/Y axis size divided by this factor. 
-            Default: 2.
+            Default: (64, 1024, 1024).
         overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. It will
             not overwrite the OME-Zarr folder if it already exists. Default: False.
 
@@ -924,7 +926,7 @@ def mesospim_to_omezarr(
     
     # Convert files based on file extension
     convert_fn = dispatcher(extension)
-    meta_df = read_metadata(metadata_path, exclusion_list)
+    meta_df = read_metadata(metadata_path, exclusion_list=[]) # exclusion list for compatibility with old version
     chunk_sizes = ChunkSizes()
     chunk_sizes.c = 1
     chunk_sizes.z = chunksize[0]
@@ -933,38 +935,36 @@ def mesospim_to_omezarr(
 
     with _set_dask_cluster(n_workers=4) as cluster:
         with Client(cluster) as client:
-            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+            #client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
             convert_fn(raw_image_paths, image_group, image_path, meta_df, chunk_sizes)
 
             shape = da.from_zarr(str(image_path / "0")).shape
             scale = meta_df.loc[0, "z_scale"], meta_df.loc[0, "y_scale"], meta_df.loc[0, "x_scale"]
-            num_levels = _estimate_pyramid_depth(shape, scale=scale)
+            pyramid_dict = _estimate_pyramid_depth(shape, scale=scale, num_levels=num_levels) # type: ignore
 
             # Build the pyramid
             build_pyramid(
                 zarr_url=str(image_path),
-                overwrite=True,
-                num_levels=num_levels,
-                coarsening_xy=coarsening_factor,
-                chunksize=chunk_sizes.get_chunksize()
+                pyramid_dict=pyramid_dict,
             )
+
 
     # Determine optimal contrast limits
     contrast_limits = _determine_optimal_contrast(
-        image_path, num_levels, segment_sample=True)
+        image_path, len(pyramid_dict), segment_sample=True)
 
     # Write OME-ZARR metadata
+    source_file_name = raw_image_paths[0].stem
     write_ome_zarr_metadata(
         zarr_group=image_group,
         meta_df=meta_df,
-        num_levels=num_levels,
-        coarsening_xy=coarsening_factor,
+        pyramid_dict=pyramid_dict,
         contrast_limits=contrast_limits,
         input_param=dict(pattern=pattern, 
                          extension=extension, 
                          metadata_file=metadata_file,
-                         source_file=metadata_path.name.replace("_meta.txt", ""), 
-                         exclusion_list=exclusion_list),
+                         source_file=source_file_name, 
+                         channel_color_settings=channel_color_file),
         user_channels_path=channel_color_file
     )
 

@@ -53,7 +53,7 @@ def correct_per_channel(
     correct_func: Callable[..., da.Array],
     correct_func_kwargs: dict[str, Any],
 ) -> None:
-    #dask_quiet()
+
     image_array = da.from_zarr(zarr_path / "0")
     new_image_array = zarr.open_array(new_zarr_path / "0")
 
@@ -91,39 +91,3 @@ def correct_per_channel(
             compute=True,
         )
     logger.info(f"Illumination correction for {channel_name} completed.")
-
-def build_pyramid_per_channel(
-    new_zarr_path: Path,
-    channel_index: int,
-    channel_name: str,
-    num_levels: int,
-    coarsening_xy: int,
-    chunksize: tuple[int, int, int, int],
-) -> None:
-    
-    logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name} for channel {channel_name}.")
-    for level in range(0, num_levels-1):
-        logger.info(f"Building pyramid level {level+1}/{num_levels-1}...")
-        up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-        down_channel_arr = da.coarsen(
-            reduction=np.mean,
-            x=up_channel_arr,
-            axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-            trim_excess=True)
-        z_end = down_channel_arr.shape[1]
-        z_chunk = chunksize[1]
-        down_channel_arr = down_channel_arr.rechunk(chunksize)
-        for z in range(0, z_end, z_chunk):
-            logger.info(f"Progress: {(z / z_end) * 100:.2f}%")
-            region = (slice(channel_index, channel_index+1),
-                slice(z, z + z_chunk),
-                slice(None),
-                slice(None))
-            region_one_channel = (slice(None),
-                slice(z, z + z_chunk),
-                slice(None),
-                slice(None))
-            down_channel_arr[region_one_channel].to_zarr(
-                url=zarr.open(str(new_zarr_path / str(level+1))), 
-                region=region, 
-                overwrite=True)

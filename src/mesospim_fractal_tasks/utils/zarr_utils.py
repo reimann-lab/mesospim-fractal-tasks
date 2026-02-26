@@ -2,7 +2,7 @@ import zarr
 import dask.array as da
 
 import logging
-from typing import Any, Union, Optional, Sequence, Mapping, Callable
+from typing import Any, Union, Optional
 from skimage.measure import block_reduce
 import numpy as np
 from pathlib import Path
@@ -13,11 +13,39 @@ from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
 
+def _get_pyramid_structure(
+    zarr_path: Path
+) -> dict[str, dict]:
+    """
+    Get the pyramid structure for a given OME-Zarr image using the NGFF metadata.
+
+    Parameters:
+        zarr_path (Path): Path to the OME-Zarr image.
+
+    Returns:
+        pyramid_dict (dict[str, dict]): Dictionary containing the scale and coarsening factors for each level.
+    """
+    meta_attrs = zarr.open_group(zarr_path, mode="r").attrs.asdict()
+    datasets = meta_attrs["multiscales"][0]["datasets"]
+    pyramid_dict = {}
+    coarsening_xy = 2
+    coarsening_z = 1
+    for d, dataset in enumerate(datasets):
+        scale = dataset["coordinateTransformations"][0]["scale"][1:]
+        if scale[0] / scale[1] < 1:
+            coarsening_z = 2
+        else:
+            coarsening_z = 1
+        pyramid_dict[str(d)] = dict(scale=scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
+
+    return pyramid_dict
+
 def _estimate_pyramid_depth(
     shape: tuple[int, ...],
+    scale: tuple[float, ...],
     roi_coords: Optional[dict] = None,
-    scale: Optional[tuple[float, ...]] = None
-) -> int:
+    num_levels: Optional[int] = None
+) -> dict[str, dict]:
     """
     Estimate the pyramid depth based on the array shape.
 
@@ -27,29 +55,48 @@ def _estimate_pyramid_depth(
     Parameters:
         shape (tuple[int, ...]): Shape of the array.
         roi_coords (dict[str, int]): ROI coordinates.
-        scale (tuple[float, ...]): Pixel scale in um.
+        scale (tuple[float, float, float]): Pixel scale in um.
+        num_levels (int): Number of pyramid levels to estimate.
 
     Returns:
-        int: Estimated pyramid depth.
+        pyramid_dict (dict[str, dict[str, int]]): Dictionary containing the scale and coarsening factors for each level.
     """
     if roi_coords is not None:
         shape = shape[0], \
             int((roi_coords["z_end"] - roi_coords["z_start"]) / scale[0]), \
             int((roi_coords["y_end"] - roi_coords["y_start"]) / scale[1]), \
             int((roi_coords["x_end"] - roi_coords["x_start"]) / scale[2])
-    num_levels = 1
+
     array_size = shape[0] * shape[1] * shape[2] * shape[3] * 2
-    while array_size > (200 * 1024**2):
-        array_size = (array_size // 4)
-        num_levels += 1
-    return num_levels
+    coarsening_xy = 2
+    coarsening_z = 1
+    pyramid_dict = {"0": dict(scale=scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)}
+    new_scale = scale
+    if num_levels is not None:
+        for level in range(1, num_levels):
+            if new_scale[0] / new_scale[1] < 1:
+                coarsening_z = 2
+            else:
+                coarsening_z = 1
+            new_scale = new_scale[0] * coarsening_z, new_scale[1] * coarsening_xy, new_scale[2] * coarsening_xy
+            pyramid_dict[str(level)] = dict(scale=new_scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
+    else:
+        level = 1
+        while array_size > (1.5 * 1024**3):
+            if new_scale[0] / new_scale[1] < 1:
+                coarsening_z = 2
+            else:
+                coarsening_z = 1
+            new_scale = new_scale[0] * coarsening_z, new_scale[1] * coarsening_xy, new_scale[2] * coarsening_xy
+            array_size = (array_size // (coarsening_z * coarsening_xy**2))
+            pyramid_dict[str(level)] = dict(scale=new_scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
+            level += 1
+    return pyramid_dict
 
 def create_zarr_pyramid(
     zarr_path: Path,
     new_zarr_name: str,
-    num_levels: Optional[int] = None,
-    coarsening_xy: Optional[int] = None,
-    chunksize: Optional[tuple[int, int, int, int]] = None,
+    pyramid_dict: dict[str, dict],
 ) -> None:
     """
     Create a pyramid of zarr array on disk for the new image.
@@ -57,41 +104,32 @@ def create_zarr_pyramid(
     Parameters:
         zarr_path (Path): Path to the original OME-Zarr image to be processed.
     """
-    image_meta = load_NgffImageMeta(str(zarr_path))
-    if num_levels is None:
-        num_levels = image_meta.num_levels
-    if coarsening_xy is None:
-        coarsening_xy = image_meta.coarsening_xy
-        if coarsening_xy is None:
-            coarsening_xy = 2
-    
-    raw_array = zarr.open_array(zarr_path / "0")
-    if chunksize is None:
-        chunksize = raw_array.chunks
-    for level in range(num_levels):
-        shape = (raw_array.shape[0], raw_array.shape[1],
-                 raw_array.shape[2] // coarsening_xy**level, 
-                 raw_array.shape[3] // coarsening_xy**level)
+    source_array = zarr.open_array(zarr_path / "0")
+    chunksize = source_array.chunks
+    new_shape = source_array.shape
+    dtype = source_array.dtype
+    for level in range(len(pyramid_dict)):
         _ = zarr.create(
-            shape=shape,
-            chunks=raw_array.chunks,
-            store=zarr.storage.FSStore(Path(zarr_path.parent,
-                                            new_zarr_name,
-                                            str(level))),
-            dtype=raw_array.dtype,
+            shape=new_shape,
+            chunks=chunksize,
+            store=zarr.storage.FSStore(
+                Path(zarr_path.parent, new_zarr_name, str(level))),
+            dtype=dtype,
             overwrite=True,
             dimension_separator="/",
+            fill_value=0,
+            write_empty_chunks=False,
         )
+        new_shape = (new_shape[0], 
+                 new_shape[1] // pyramid_dict[str(level)]["coarsening_z"], 
+                 new_shape[2] // pyramid_dict[str(level)]["coarsening_xy"], 
+                 new_shape[3] // pyramid_dict[str(level)]["coarsening_xy"])
 
 def build_pyramid(
-    *,
     zarr_url: Union[str, Path],
-    overwrite: bool = False,
-    num_levels: int = 2,
-    coarsening_xy: int = 2,
-    chunksize: Optional[Sequence[int]] = None,
-    aggregation_function: Optional[Callable] = None,
-    open_array_kwargs: Optional[Mapping] = None,
+    pyramid_dict: dict[str, dict],
+    channel_index: Optional[int] = None,
+    channel_name: Optional[str] = None,
 ) -> None:
     """
     Starting from on-disk highest-resolution data, build and write to disk a
@@ -99,107 +137,118 @@ def build_pyramid(
     This function works for 2D, 3D or 4D arrays.
 
     Args:
-        zarrurl: Path of the image zarr group, not including the
+        zarr_url: Path of the image zarr group, not including the
             multiscale-level path (e.g. `"some/path/plate.zarr/B/03/0"`).
-        overwrite: Whether to overwrite existing pyramid levels.
-        num_levels: Total number of pyramid levels (including 0).
-        coarsening_xy: Linear coarsening factor between subsequent levels.
-        chunksize: Shape of a single chunk.
-        aggregation_function: Function to be used when downsampling.
-        open_array_kwargs: Additional arguments for zarr.open.
+        pyramid_dict: Dictionary containing the scale and coarsening factors for each level.
+        channel_index: Index of the channel to process if building channel in parallel.
+        channel_name: Name of the channel to process if building channel in parallel.
     """
 
     # Lazily load highest-resolution data
     zarr_path = Path(zarr_url)
     full_res_array = da.from_zarr(str(zarr_path / "0"))
+    chunksize = full_res_array.chunksize
 
-    # Check the number of axes and identify YX dimensions
-    ndims = len(full_res_array.shape)
-    if ndims not in [2, 3, 4]:
-        raise ValueError(f"{full_res_array.shape=}, ndims not in [2,3,4]")
-    y_axis = ndims - 2
-    x_axis = ndims - 1
-
-    # Set aggregation_function
-    if aggregation_function is None:
-        aggregation_function = np.mean
-
+    if channel_name is not None:
+        logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}"
+                    f" for channel {channel_name}.")
+    else:
+        logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}.")
+    
     # Compute and write lower-resolution levels
     previous_level = full_res_array
-    for ind_level in range(1, num_levels):
+    for level in range(1, len(pyramid_dict)):
         
+        if channel_index is not None:
+            previous_level = da.from_zarr(str(zarr_path/ str(level-1)))[channel_index:channel_index+1]
+        else:
+            previous_level = da.from_zarr(str(zarr_path/ str(level-1)))
+
         # Verify that coarsening is doable
+        coarsening_z = pyramid_dict[str(level-1)]["coarsening_z"]
+        coarsening_xy = pyramid_dict[str(level-1)]["coarsening_xy"]
         if min(previous_level.shape[-2:]) < coarsening_xy:
             raise ValueError(
-                f"ERROR: at {ind_level}-th level, "
+                f"ERROR: at {level}-th level, "
                 f"coarsening_xy={coarsening_xy} "
                 f"but previous level has shape {previous_level.shape}"
             )
+        if previous_level.shape[-3] < coarsening_z:
+            raise ValueError(
+                f"ERROR: at {level}-th level, "
+                f"coarsening_z={coarsening_z} "
+                f"but previous level has shape {previous_level.shape}"
+            )
+        
+        # Verify if it needs padding
+        pad = np.array((
+            0,
+            previous_level.shape[0] % coarsening_z, 
+            previous_level.shape[1] % coarsening_xy, 
+            previous_level.shape[2] % coarsening_xy))
+        if pad.sum() > 0:
+            previous_level = da.pad(
+                previous_level, 
+                pad_width=((0,0),(0,pad[1]), (0, pad[2]), (0, pad[3])),
+                mode="edge").rechunk(chunksize)
+        new_shape = tuple(
+            (np.array(previous_level.shape) + pad) //
+            np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
+
         # Apply coarsening
-        newlevel = da.coarsen(
-            aggregation_function,
+        new_level = da.coarsen(
+            np.mean,
             previous_level,
-            {y_axis: coarsening_xy, x_axis: coarsening_xy},
-            trim_excess=True,
+            {1: coarsening_z,
+             2: coarsening_xy,
+             3: coarsening_xy},
+            trim_excess=True
         ).astype(full_res_array.dtype)
 
         # Apply rechunking
-        if chunksize is None:
-            newlevel_rechunked = newlevel
-        else:
-            newlevel_rechunked = newlevel.rechunk(chunksize)
+        new_level = new_level.rechunk(chunksize)
         logger.info(
-            f"Building OME-Zarr pyramid level {ind_level}/{num_levels-1}..."
+            f"Building OME-Zarr pyramid level {level}/{len(pyramid_dict)-1}..."
         )
 
-        if open_array_kwargs is None:
-            open_array_kwargs = {}
+        # Create new zarr array store if needed
+        if channel_index is None:
+            _ = zarr.open(
+                str(zarr_path / str(level)),
+                shape=new_shape,
+                chunks=chunksize,
+                dtype=new_level.dtype,
+                mode="w",
+                dimension_separator="/",
+                write_empty_chunks=False,
+                fill_value=0,
+            )
 
-        # If overwrite is false, check that the array doesn't exist yet
-        if not overwrite:
-            try:
-                zarr.open(str(zarr_path / str(ind_level)), mode="r")
-                raise ValueError(
-                    f"While building the pyramids, pyramid level {ind_level} "
-                    "already existed, but `build_pyramid` was called with "
-                    f"{overwrite=}."
-                )
-            except zarr.errors.PathNotFoundError:
-                pass
-
-        zarrarr = zarr.open(
-            str(zarr_path / str(ind_level)),
-            shape=newlevel_rechunked.shape,
-            chunks=newlevel_rechunked.chunksize,
-            dtype=newlevel_rechunked.dtype,
-            mode="w",
-            dimension_separator=open_array_kwargs.get(
-                "dimension_separator", "/"
-            ),
-            **open_array_kwargs,
-        )
-
-        # Write zarr and store output (useful to construct next level)
-        z_end = newlevel_rechunked.shape[1]
-        z_chunk = newlevel_rechunked.chunksize[1]
+        # Write to zarr
+        z_end = new_shape[1]
+        z_chunk = chunksize[1]
         for z in range(0, z_end, z_chunk):
             logger.info(f"Progress: {(z / z_end) * 100:.2f}%")
-            region = (slice(None),
-                    slice(z, z+z_chunk),
-                    slice(None),
-                    slice(None))
-            newlevel_rechunked[region].to_zarr(
-                zarrarr,
-                overwrite=overwrite,
+            source_region = (slice(None),
+                        slice(z, z+z_chunk),
+                        slice(None),
+                        slice(None))
+            if channel_index is not None:
+                dest_region = (slice(channel_index, channel_index+1),
+                        slice(z, z+z_chunk),
+                        slice(None),
+                        slice(None))
+            else:
+                dest_region = source_region
+            
+            new_level[source_region].to_zarr(
+                zarr.open_array(str(zarr_path / str(level))),
                 compute=True,
-                region=region,
-                return_stored=False,
-                write_empty_chunks=False,
-                dimension_separator=open_array_kwargs.get(
-                    "dimension_separator", "/"
-                )
+                overwrite=True,
+                region=dest_region
             )
-        previous_level = da.from_zarr(str(zarr_path/ str(ind_level)))
+        logger.info(f"Progress: 100%")
+        previous_level = da.from_zarr(str(zarr_path/ str(level)))
 
 def _determine_optimal_contrast(
     image_path: Path,
@@ -418,6 +467,8 @@ def _store_label_to_zarr(
             store=zarr.storage.FSStore(f"{label_path}/0"),
             overwrite=overwrite,
             dimension_separator="/",
+            fill_value=0,
+            write_empty_chunks=False,
         )
     if isinstance(label_mask, da.Array):
         label_mask.to_zarr(mask_zarr, compute=True)
@@ -469,6 +520,8 @@ def _build_label_pyramid(
                 store=zarr.storage.FSStore(f"{label_path}/{level}"),
                 overwrite=overwrite,
                 dimension_separator="/",
+                fill_value=0,
+                write_empty_chunks=False,
             )
         
         # Correct the size of the mask array if necessary and save to zarr

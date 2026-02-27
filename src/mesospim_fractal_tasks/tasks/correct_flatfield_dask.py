@@ -273,6 +273,7 @@ def collect_fovs(
 
 def correct_FOV(
     FOV_dask: da.Array,
+    i_FOV: int,
     illum_profiles: IlluminationModel,
 ) -> da.Array:
     """
@@ -283,6 +284,7 @@ def correct_FOV(
 
     Parameters:
         img_stack: 4D numpy array (czyx), with dummy size along c.
+        i_FOV: compatibility with parallelisation (unused)
         illum_profiles: IlluminationModel instance with the illumination 
             correction profiles.
 

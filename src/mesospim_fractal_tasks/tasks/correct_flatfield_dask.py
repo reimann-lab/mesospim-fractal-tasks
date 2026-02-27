@@ -169,7 +169,7 @@ def compute_basicpy_models(
 def collect_fovs(
     zarr_path: Path,
     channel_index: int,
-    FOV_list: list[int],
+    FOV_list: list[int] | None,
     resolution_level: int,
     pixel_sizes_yx: list[float],
     n_zplanes: int,
@@ -201,14 +201,14 @@ def collect_fovs(
     FOV_ROI_df = ad.read_zarr(zarr_path / "tables" / "FOV_ROI_table").to_df()
     z_size = image_arr.shape[0]
     
-    if len(FOV_list) != 0:
+    if FOV_list is not None:
         assert set(FOV_list).issubset(range(len(FOV_ROI_df.index))), ("FOV list contains FOVs "
             "that are not present in the FOV_ROI_table.")
         logger.info(f"Collecting {n_zplanes} empty FOVs from {FOV_list}...")
         n_FOVs = len(FOV_list)
         if z_levels is not None:
             if z_levels[0] > z_levels[1]:
-                z_levels = (z_levels[1], z_levels[0])
+                z_levels = [z_levels[1], z_levels[0]]
             min_z_subvolume_size = min(z_levels[0], (z_size - z_levels[1]))
             if n_FOVs * min_z_subvolume_size < (n_zplanes // 2):
                 n_zplanes = (n_FOVs * min_z_subvolume_size)
@@ -218,7 +218,7 @@ def collect_fovs(
     else:
         logger.info(f"Collecting {n_zplanes} random FOVs from full stack of FOVs...")
         n_FOVs = len(FOV_ROI_df.index)
-        FOV_list = range(n_FOVs)
+        FOV_list = list(range(n_FOVs))
     n_zplanes_per_FOV = max(-(-n_zplanes // n_FOVs), 1)
     if n_zplanes_per_FOV > z_size:
         n_zplanes_per_FOV = z_size
@@ -273,6 +273,7 @@ def collect_fovs(
 
 def correct_FOV(
     FOV_dask: da.Array,
+    i_FOV: int,
     illum_profiles: IlluminationModel,
 ) -> da.Array:
     """
@@ -283,6 +284,7 @@ def correct_FOV(
 
     Parameters:
         img_stack: 4D numpy array (czyx), with dummy size along c.
+        i_FOV: compatibility with parallelisation (unused)
         illum_profiles: IlluminationModel instance with the illumination 
             correction profiles.
 
@@ -480,11 +482,12 @@ def correct_flatfield(
     z_size = image_arr.shape[1]
 
     # Define FOV list
-    if FOV_list is None:
-        FOV_list = []
-    if len(FOV_list) == 0 and z_levels is not None:
-        FOV_list = define_FOV_list(zarr_path, z_levels)
-    assert len(FOV_list) != 0, "FOV list is empty!"
+    if FOV_list is None and z_levels is not None:
+        FOV_list = define_FOV_list(zarr_path)
+    
+    if FOV_list is not None:
+        assert min(FOV_list) > 0, ("FOV list must start at 1.")
+        FOV_list = [int(i-1) for i in FOV_list]
 
     if z_levels is not None:
         assert len(z_levels) == 2, "z_levels must be a list of two numbers."
@@ -506,8 +509,13 @@ def correct_flatfield(
     FOV_shape = (indices[0][-3], indices[0][-1])
 
     # Set dask cluster
-    with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
-        
+    client = None
+    cluster = None
+    try:
+        cluster = _set_dask_cluster(n_workers=len(channel_dict.keys()))
+        client = Client(cluster)
+        client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+            
         # Iterate over channels
         illum_profiles = {}
         for channel in channel_dict.keys():
@@ -523,7 +531,7 @@ def correct_flatfield(
             )
             if models_folder is None:
                 if FOV_list is not None:
-                    with Client(cluster) as client:
+                        assert len(FOV_list) != 0, "FOV list is empty!"
                         client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
                         illum_profiles[channel] = compute_empty_fov_models(
                             FOV_data=FOV_data,
@@ -539,7 +547,7 @@ def correct_flatfield(
                     )
 
                 if save_models:
-                    if FOV_list is not None or z_levels is not None:
+                    if FOV_list is not None:
                         folder_path = Path(zarr_path.parent, "IllumModels")
                     else:
                         folder_path = Path(zarr_path.parent, "BaSiCPyModels")
@@ -593,42 +601,53 @@ def correct_flatfield(
                         FOV_shape)
                 illum_profiles[channel].darkfield = da.from_array(illum_profiles[channel].darkfield, 
                                                                 chunks=image_arr.chunksize[-2:])
-                    
-        with Client(cluster) as client:
-            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-            futures = []
-            for channel_name, channel_idx in channel_dict.items():
-                illum_prof_f = client.scatter(illum_profiles[channel_name], broadcast=False)
-                fut = client.submit(
-                    correct_per_channel,
-                    zarr_path=zarr_path,
-                    new_zarr_path=new_zarr_path,
-                    channel_name=channel_name,
-                    channel_index=channel_idx,
-                    full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-                    correct_func=correct_FOV,
-                    correct_func_kwargs={
-                        "illum_profiles": illum_prof_f,
-                    },
-                    pure=False,
-                    retries=1
-                )
-                futures.append(fut)
-            client.gather(futures)
+                
+        futures = []
+        for channel_name, channel_idx in channel_dict.items():
+            illum_prof_f = client.scatter(illum_profiles[channel_name], broadcast=False)
+            fut = client.submit(
+                correct_per_channel,
+                zarr_path=zarr_path,
+                new_zarr_path=new_zarr_path,
+                channel_name=channel_name,
+                channel_index=channel_idx,
+                full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+                correct_func=correct_FOV,
+                correct_func_kwargs={
+                    "illum_profiles": illum_prof_f,
+                },
+                pure=False,
+                retries=1
+            )
+            futures.append(fut)
+        client.gather(futures)
 
-            futures = []
-            for channel_name, channel_idx in channel_dict.items():
-                fut = client.submit(
-                    build_pyramid,
-                    zarr_url=new_zarr_path,
-                    pyramid_dict=pyramid_dict,
-                    channel_index=channel_idx,
-                    channel_name=channel_name,
-                    pure=False,
-                    retries=1
-                )
-                futures.append(fut)
-            client.gather(futures)
+        futures = []
+        for channel_name, channel_idx in channel_dict.items():
+            fut = client.submit(
+                build_pyramid,
+                zarr_url=new_zarr_path,
+                pyramid_dict=pyramid_dict,
+                channel_index=channel_idx,
+                channel_name=channel_name,
+                pure=False,
+                retries=1
+            )
+            futures.append(fut)
+        client.gather(futures)
+    
+    finally:
+        if client is not None:
+            try:
+                client.close(timeout="300s")  # give it more time
+            except TimeoutError:
+                pass
+
+        if cluster is not None:
+            try:
+                cluster.close(timeout=300)
+            except TimeoutError:
+                pass
 
     # Copy ROI tables from the old zarr_url
     _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))

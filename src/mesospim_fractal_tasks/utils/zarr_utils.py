@@ -120,10 +120,19 @@ def create_zarr_pyramid(
             fill_value=0,
             write_empty_chunks=False,
         )
-        new_shape = (new_shape[0],
-                 new_shape[1] // pyramid_dict[str(level)]["coarsening_z"],
-                 new_shape[2] // pyramid_dict[str(level)]["coarsening_xy"],
-                 new_shape[3] // pyramid_dict[str(level)]["coarsening_xy"])
+
+        # Verify if it needs padding
+        coarsening_z = pyramid_dict[str(level)]["coarsening_z"]
+        coarsening_xy = pyramid_dict[str(level)]["coarsening_xy"]
+        pad = np.array((
+            0,
+            (coarsening_z - new_shape[1] % coarsening_z) % coarsening_z,
+            (coarsening_xy - new_shape[2] % coarsening_xy) % coarsening_xy,
+            (coarsening_xy - new_shape[3] % coarsening_xy) % coarsening_xy))
+
+        new_shape = tuple(
+            (np.array(new_shape) + pad) //
+            np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
 
 def build_pyramid(
     zarr_url: Union[str, Path],
@@ -183,9 +192,9 @@ def build_pyramid(
         # Verify if it needs padding
         pad = np.array((
             0,
-            (coarsening_z - previous_level.shape[0] % coarsening_z) % coarsening_z,
-            (coarsening_xy - previous_level.shape[1] % coarsening_xy) % coarsening_xy,
-            (coarsening_xy - previous_level.shape[2] % coarsening_xy) % coarsening_xy))
+            (coarsening_z - previous_level.shape[1] % coarsening_z) % coarsening_z,
+            (coarsening_xy - previous_level.shape[2] % coarsening_xy) % coarsening_xy,
+            (coarsening_xy - previous_level.shape[3] % coarsening_xy) % coarsening_xy))
 
         new_shape = tuple(
             (np.array(previous_level.shape) + pad) //

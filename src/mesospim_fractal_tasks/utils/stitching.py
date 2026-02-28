@@ -240,11 +240,11 @@ def prepare_block_fusion(
         chunks=full_output_chunksize)
     
     logger.info(f"Fusing into a an output stack:")
-    logger.info("- shape: ", {dim: int(output_stack_properties['shape'][dim])
+    logger.info(f"- shape: ", {dim: int(output_stack_properties['shape'][dim])
         if dim in sdims else ns_shape[dim] for dim in dims})
-    logger.info("- spacing: ", {k: float(v)
+    logger.info(f"- spacing: ", {k: float(v)
         for k, v in output_stack_properties['spacing'].items()})
-    logger.info("- origin: ", {k: float(v)
+    logger.info(f"- origin: ", {k: float(v)
         for k, v in output_stack_properties['origin'].items()})
 
     # Create Zarr array ONCE

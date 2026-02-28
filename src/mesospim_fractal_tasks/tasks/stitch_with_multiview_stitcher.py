@@ -293,16 +293,6 @@ def stitch_with_multiview_stitcher(
     
     logger.info("Finished fusing tiles.")
 
-    logger.info("Start building multi-resolution pyramid.")
-    with _set_dask_cluster(n_workers=4) as cluster:
-        with Client(cluster) as client:
-            pyramid_dict = _get_pyramid_structure(zarr_path)
-            build_pyramid(
-                zarr_url=output_zarr_path,
-                pyramid_dict=pyramid_dict
-            )
-            logger.info("Finished building resolution pyramid")
-
     # Add ROI table to the image
     ngff_image_meta.get_pixel_sizes_zyx(level=0)
     pixels_ZYX = (
@@ -344,11 +334,20 @@ def stitch_with_multiview_stitcher(
             fusion_chunksize=fusion_chunksize_dict,
         )
     )
-
     fractal_tasks["stitching_with_multiview_stitcher"] = task_dict
     source_attrs["fractal_tasks"] = fractal_tasks
     new_group.attrs.put(source_attrs)
     logger.info("Finished copying NGFF metadata.")
+
+    logger.info("Start building multi-resolution pyramid.")
+    with _set_dask_cluster(n_workers=4) as cluster:
+        with Client(cluster) as client:
+            pyramid_dict = _get_pyramid_structure(zarr_path)
+            build_pyramid(
+                zarr_url=output_zarr_path,
+                pyramid_dict=pyramid_dict
+            )
+            logger.info("Finished building resolution pyramid")
 
     if erase_source_image:
         logger.info("Erasing source image...")

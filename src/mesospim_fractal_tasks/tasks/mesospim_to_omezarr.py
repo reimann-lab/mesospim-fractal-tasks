@@ -239,6 +239,7 @@ def check_n_pixels(
     if len(x_pos) == 1 or len(y_pos) == 1:
         meta_df["y_n_pixels"] = x_pixels
         meta_df["x_n_pixels"] = y_pixels
+        return
 
     x_overlap = x_pixels - (round(abs(x_pos[1] - x_pos[0]) / x_scale))
     y_overlap = y_pixels - (round(abs(y_pos[1] - y_pos[0]) / y_scale))

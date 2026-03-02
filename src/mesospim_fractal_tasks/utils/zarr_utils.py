@@ -133,6 +133,111 @@ def create_zarr_pyramid(
         new_shape = tuple(
             (np.array(new_shape) + pad) //
             np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
+        
+def _build_single_level(
+    zarr_path: Path,
+    level: int,
+    channel_index: Optional[int],
+    pyramid_dict: dict[str, dict],
+    chunksize: tuple[int, ...],
+) -> None:
+    """
+    Compute and write one coarsened pyramid level from the level below it.
+
+    Parameters:
+        zarr_path: Path to the OME-Zarr group.
+        level: Target level to build (reads from ``level - 1``).
+        channel_index: Index of the channel to use for the coarsening.
+        pyramid_dict: Full pyramid dictionary.
+        chunksize: Chunk shape to use for the new level.
+    """
+    src_path = zarr_path / str(level - 1)
+
+    if channel_index is not None:
+        previous_level = da.from_zarr(str(src_path))[channel_index:channel_index+1]
+    else:
+        previous_level = da.from_zarr(str(src_path))
+
+    coarsening_z = pyramid_dict[str(level - 1)]["coarsening_z"]
+    coarsening_xy = pyramid_dict[str(level - 1)]["coarsening_xy"]
+
+    if min(previous_level.shape[-2:]) < coarsening_xy:
+        raise ValueError(
+            f"Level {level}: coarsening_xy={coarsening_xy} but previous level "
+            f"shape is {previous_level.shape}."
+        )
+    if previous_level.shape[-3] < coarsening_z:
+        raise ValueError(
+            f"Level {level}: coarsening_z={coarsening_z} but previous level "
+            f"shape is {previous_level.shape}."
+        )
+
+    # Pad so dimensions are divisible by coarsening factors
+    pad = np.array([
+        0,
+        (coarsening_z - previous_level.shape[1] % coarsening_z) % coarsening_z,
+        (coarsening_xy - previous_level.shape[2] % coarsening_xy) % coarsening_xy,
+        (coarsening_xy - previous_level.shape[3] % coarsening_xy) % coarsening_xy,
+    ])
+
+    new_shape = tuple(
+        (np.array(previous_level.shape) + pad)
+        // np.array([1, coarsening_z, coarsening_xy, coarsening_xy])
+    )
+
+    if pad.sum() > 0:
+        previous_level = da.pad(
+            previous_level,
+            pad_width=((0, 0), (0, int(pad[1])), (0, int(pad[2])), (0, int(pad[3]))),
+            mode="edge",
+        ).rechunk(chunksize)
+
+    new_level = da.coarsen(
+        np.mean,
+        previous_level,
+        {1: coarsening_z, 2: coarsening_xy, 3: coarsening_xy},
+        trim_excess=True,
+    ).astype(previous_level.dtype)
+
+    new_level = new_level.rechunk(chunksize)
+
+    # (Re)create zarr array on disk
+    if channel_index is None:
+        zarr.open(
+            str(zarr_path / str(level)),
+            shape=new_shape,
+            chunks=chunksize,
+            dtype=new_level.dtype,
+            mode="w",
+            dimension_separator="/",
+            write_empty_chunks=False,
+            fill_value=0,
+        )
+
+    # Write chunk-by-chunk along z to keep memory usage bounded
+    z_end = new_shape[1]
+    z_chunk = chunksize[1]
+    for z in range(0, z_end, z_chunk):
+        logger.info(f"Progress: {z/z_end*100:.2f}%")
+        source_region = (slice(None),
+                    slice(z, z+z_chunk),
+                    slice(None),
+                    slice(None))
+        if channel_index is not None:
+            dest_region = (slice(channel_index, channel_index+1),
+                    slice(z, z+z_chunk),
+                    slice(None),
+                    slice(None))
+        else:
+            dest_region = source_region
+        new_level[source_region].to_zarr(
+            zarr.open_array(str(zarr_path / str(level))),
+            compute=True,
+            overwrite=True,
+            region=dest_region,
+        )
+    logger.info(f"Progress: 100%")
+    return
 
 def build_pyramid(
     zarr_url: Union[str, Path],
@@ -165,101 +270,8 @@ def build_pyramid(
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}.")
 
     # Compute and write lower-resolution levels
-    previous_level = full_res_array
     for level in range(1, len(pyramid_dict)):
-
-        if channel_index is not None:
-            previous_level = da.from_zarr(str(zarr_path/ str(level-1)))[channel_index:channel_index+1]
-        else:
-            previous_level = da.from_zarr(str(zarr_path/ str(level-1)))
-
-        # Verify that coarsening is doable
-        coarsening_z = pyramid_dict[str(level-1)]["coarsening_z"]
-        coarsening_xy = pyramid_dict[str(level-1)]["coarsening_xy"]
-        if min(previous_level.shape[-2:]) < coarsening_xy:
-            raise ValueError(
-                f"ERROR: at {level}-th level, "
-                f"coarsening_xy={coarsening_xy} "
-                f"but previous level has shape {previous_level.shape}"
-            )
-        if previous_level.shape[-3] < coarsening_z:
-            raise ValueError(
-                f"ERROR: at {level}-th level, "
-                f"coarsening_z={coarsening_z} "
-                f"but previous level has shape {previous_level.shape}"
-            )
-
-        # Verify if it needs padding
-        pad = np.array((
-            0,
-            (coarsening_z - previous_level.shape[1] % coarsening_z) % coarsening_z,
-            (coarsening_xy - previous_level.shape[2] % coarsening_xy) % coarsening_xy,
-            (coarsening_xy - previous_level.shape[3] % coarsening_xy) % coarsening_xy))
-
-        new_shape = tuple(
-            (np.array(previous_level.shape) + pad) //
-            np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
-
-        if pad.sum() > 0:
-            previous_level = da.pad(
-                previous_level,
-                pad_width=((0,0),(0,pad[1]), (0, pad[2]), (0, pad[3])),
-                mode="edge").rechunk(chunksize)
-
-        # Apply coarsening
-        new_level = da.coarsen(
-            np.mean,
-            previous_level,
-            {1: coarsening_z,
-             2: coarsening_xy,
-             3: coarsening_xy},
-            trim_excess=True
-        ).astype(full_res_array.dtype)
-
-        # Apply rechunking
-        new_level = new_level.rechunk(chunksize)
-        logger.info(
-            f"Building OME-Zarr pyramid level {level}/{len(pyramid_dict)-1}..."
-        )
-
-        # Create new zarr array store if needed
-        if channel_index is None:
-            _ = zarr.open(
-                str(zarr_path / str(level)),
-                shape=new_shape,
-                chunks=chunksize,
-                dtype=new_level.dtype,
-                mode="w",
-                dimension_separator="/",
-                write_empty_chunks=False,
-                fill_value=0,
-            )
-
-        # Write to zarr
-        z_end = new_shape[1]
-        z_chunk = chunksize[1]
-        for z in range(0, z_end, z_chunk):
-            logger.info(f"Progress: {(z / z_end) * 100:.2f}%")
-            source_region = (slice(None),
-                        slice(z, z+z_chunk),
-                        slice(None),
-                        slice(None))
-            if channel_index is not None:
-                dest_region = (slice(channel_index, channel_index+1),
-                        slice(z, z+z_chunk),
-                        slice(None),
-                        slice(None))
-            else:
-                dest_region = source_region
-
-            new_level[source_region].to_zarr(
-                zarr.open_array(str(zarr_path / str(level))),
-                compute=True,
-                overwrite=True,
-                region=dest_region
-            )
-        logger.info(f"Progress: 100%")
-        previous_level = da.from_zarr(str(zarr_path/ str(level)))
+        _build_single_level(zarr_path, level, channel_index, pyramid_dict, chunksize)
 
 def _determine_optimal_contrast(
     image_path: Path,

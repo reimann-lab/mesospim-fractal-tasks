@@ -119,6 +119,13 @@ def mock_mesospim_env(mocker):
         module + ".find_metadata_file")
     mocks["find_raw_image_files"] = mocker.patch(
         module + ".find_raw_image_files")
+    arr = np.arange(5*20*20).reshape(1, 5, 20, 20)
+    fake_dask = FakeDaskArray(arr)
+    mocks["from_zarr"] = mocker.patch(
+        module + ".da.from_zarr",
+        return_value=fake_dask)
+    mocks["estimate_pyramid_depth"] = mocker.patch(
+        module + "._estimate_pyramid_depth")
 
     mocks = mocks | mock_dask_distributed(mocker, module)
 

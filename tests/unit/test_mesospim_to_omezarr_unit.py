@@ -87,10 +87,9 @@ def test_metadata_file_provided_and_exists(
         metadata_file="image_0001.h5_meta.txt",
     )
 
-    mock_read.assert_called_once_with(
-        tmp_dataset / "image_0001.h5_meta.txt",
-        []
-    )
+    args, kwargs = mock_read.call_args
+    assert args[0] == tmp_dataset / "image_0001.h5_meta.txt"
+    assert kwargs["exclusion_list"] == []
 
 def test_metadata_file_provided_and_missing(
     tmp_dataset, 
@@ -510,6 +509,10 @@ def test_write_ome_zarr_metadata_basic(
             "1": {"label": "Ch1", "laser_wavelength": 561, "color": "FF0000"},
         }
     )
+    pyramid_dict = {
+        "0": {"scale": (1.0, 1.0, 1.0), "coarsening_xy": 2, "coarsening_z": 1},
+        "1": {"scale": (1.0, 2.0, 2.0), "coarsening_xy": 2, "coarsening_z": 2},
+    }
 
     # --- Mock NgffImageMeta so it doesn't validate deeply ---
     mocker.patch(MODULE + ".NgffImageMeta")
@@ -518,8 +521,7 @@ def test_write_ome_zarr_metadata_basic(
     write_ome_zarr_metadata(
         zarr_group=fake_group,
         meta_df=meta_df,
-        num_levels=2,
-        coarsening_xy=2,
+        pyramid_dict=pyramid_dict,
         user_channels_path="whatever",
         input_param={"foo": "bar"},
         contrast_limits={"0": {"start": 0, "end": 1000},
@@ -557,8 +559,7 @@ def test_write_ome_zarr_metadata_basic(
     write_ome_zarr_metadata(
         zarr_group=fake_group,
         meta_df=meta_df,
-        num_levels=2,
-        coarsening_xy=2,
+        pyramid_dict=pyramid_dict,
         user_channels_path="whatever",
         input_param={"foo": "bar"},
     )

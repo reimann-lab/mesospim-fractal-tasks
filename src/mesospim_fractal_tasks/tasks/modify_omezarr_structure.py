@@ -156,29 +156,28 @@ def _rechunk_level(
     level_path = zarr_path / str(level)
     tmp_path = zarr_path / f"_tmp_rechunk_{level}"
 
-    src = zarr.open_array(str(level_path), mode="r")
     arr = da.from_zarr(str(level_path))
     arr_rechunked = arr.rechunk(new_chunksize)
 
-    logger.info(f"Rechunking level {level}: {src.chunks} → {new_chunksize}")
+    logger.info(f"Rechunking level {level}: {arr.chunksize} → {new_chunksize}")
 
     # Write to temp store
     tmp = zarr.open(
         str(tmp_path),
-        shape=src.shape,
+        shape=arr.shape,
         chunks=new_chunksize,
-        dtype=src.dtype,
+        dtype=arr.dtype,
         mode="w",
         dimension_separator="/",
         write_empty_chunks=False,
         fill_value=0,
     )
     z_chunk = new_chunksize[1]
-    z_end = src.shape[1]
+    z_end = arr.shape[1]
     for z in range(0, z_end, z_chunk):
         logger.info(f"Progress: {z/z_end*100:.2f}%")
         region = (slice(None), slice(z, z + z_chunk), slice(None), slice(None))
-        da.store(arr_rechunked[region], tmp, region=region, compute=True)
+        arr_rechunked[region].to_zarr(tmp, region=region, compute=True)
 
     # Atomic swap
     shutil.rmtree(str(level_path))
@@ -208,6 +207,8 @@ def rechunk_omezarr(
             for level in range(num_levels, old_num_levels):
                 shutil.rmtree(str(zarr_path / str(level)))
     
+    print(old_num_levels, num_levels)
+
     for level in range(min(num_levels, old_num_levels)):
         if not _check_level_complete(zarr_path, level) and level == 0: 
             raise ValueError(
@@ -219,6 +220,8 @@ def rechunk_omezarr(
                         f"rebuilding level using level {level - 1} instead.")
             old_num_levels = level
             break
+        print(new_chunksize)
+        print(level)
         _rechunk_level(zarr_path, level, new_chunksize)
     
     if num_levels > old_num_levels:
@@ -359,16 +362,11 @@ def modify_omezarr_structure(
         f"{zarr_path.parent.name}/{zarr_path.name}"
     )
 
-    # Rename image and update metadata
-    if new_image_name is not None:
-        _update_multiscales_name(zarr_path, new_image_name)
-        shutil.move(str(zarr_path), str(zarr_path.parent / new_image_name))
-
     # Set new chunk size if necessary
     new_chunksize = list(zarr.open_array(str(zarr_path / "0"), mode="r").chunks)
     if chunksize is not None:
         for d, dim in enumerate(["z", "y", "x"]):
-            if chunksize[dim] is None:
+            if chunksize[dim] is not None:
                 new_chunksize[d+1] = chunksize[dim]
 
     cluster = None
@@ -414,25 +412,32 @@ def modify_omezarr_structure(
             if current_wavelength in channel_labels.keys():
                 channel["label"] = channel_labels[current_wavelength]
         
-        for channel in image_attrs["omera"]["channel"]:
+        for channel in image_attrs["omero"]["channels"]:
             current_wavelength = channel["wavelength_id"]
             if current_wavelength in channel_labels.keys():
                 channel["label"] = channel_labels[current_wavelength]
         zarr_group.attrs.update(image_attrs)
     
     # _update_omero_channels expects a list indexed by channel position
-    channel_order = {channel["label"]: i for i, channel in enumerate(image_attrs["omero"]["channels"])}
+    channel_order = {channel["label"]: str(i) for i, channel in enumerate(image_attrs["omero"]["channels"])}
     if channel_colors is not None:
+        omero_update["color"] = {}
         for label in channel_colors.keys():
             omero_update["color"][channel_order[label]] = channel_colors[label]
 
     if channel_contrast_limits is not None:
+        omero_update["window"] = {}
         for label in channel_contrast_limits.keys():
             omero_update["window"][channel_order[label]] = channel_contrast_limits[label]
 
     if omero_update:
         logger.info("Updating OMERO channel metadata.")
         _update_omero_channels(zarr_path, omero_update)
+
+        # Rename image and update metadata
+    if new_image_name is not None:
+        _update_multiscales_name(zarr_path, new_image_name)
+        shutil.move(str(zarr_path), str(zarr_path.parent / new_image_name))
 
     logger.info("Task `Modify OME-Zarr structure` complete.")
     return 

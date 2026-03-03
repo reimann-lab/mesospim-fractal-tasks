@@ -30,13 +30,19 @@ def _get_pyramid_structure(
     pyramid_dict = {}
     coarsening_xy = 2
     coarsening_z = 1
-    for d, dataset in enumerate(datasets):
-        scale = dataset["coordinateTransformations"][0]["scale"][1:]
-        if scale[0] / scale[1] < 1:
-            coarsening_z = 2
-        else:
-            coarsening_z = 1
-        pyramid_dict[str(d)] = dict(scale=scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
+    nb_datasets = len(datasets)
+    previous_scale = tuple(datasets[0]["coordinateTransformations"][0]["scale"])
+    if len(previous_scale) == 4:
+        previous_scale = previous_scale[1:]
+    for d in range(1, nb_datasets):
+        next_scale = tuple(datasets[d]["coordinateTransformations"][0]["scale"])
+        if len(next_scale) == 4:
+            next_scale = next_scale[1:]
+        coarsening_z = int(next_scale[0] // previous_scale[0])
+        coarsening_xy = int(next_scale[1] // previous_scale[1])
+        pyramid_dict[str(d-1)] = dict(scale=previous_scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
+        previous_scale = next_scale
+    pyramid_dict[str(nb_datasets-1)] = dict(scale=previous_scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
 
     return pyramid_dict
 
@@ -82,7 +88,7 @@ def _estimate_pyramid_depth(
             pyramid_dict[str(level)] = dict(scale=new_scale, coarsening_xy=coarsening_xy, coarsening_z=coarsening_z)
     else:
         level = 1
-        while array_size > (1.5 * 1024**3):
+        while array_size > (1024**3):
             if new_scale[0] / new_scale[1] < 1:
                 coarsening_z = 2
             else:
@@ -195,7 +201,7 @@ def _build_single_level(
     new_level = da.coarsen(
         np.mean,
         previous_level,
-        {1: coarsening_z, 2: coarsening_xy, 3: coarsening_xy},
+        {1: int(coarsening_z), 2: int(coarsening_xy), 3: int(coarsening_xy)},
         trim_excess=True,
     ).astype(previous_level.dtype)
 
@@ -215,8 +221,8 @@ def _build_single_level(
         )
 
     # Write chunk-by-chunk along z to keep memory usage bounded
-    z_end = new_shape[1]
-    z_chunk = chunksize[1]
+    z_end = int(new_shape[1])
+    z_chunk = int(chunksize[1])
     for z in range(0, z_end, z_chunk):
         logger.info(f"Progress: {z/z_end*100:.2f}%")
         source_region = (slice(None),
@@ -262,12 +268,17 @@ def build_pyramid(
     zarr_path = Path(zarr_url)
     full_res_array = da.from_zarr(str(zarr_path / "0"))
     chunksize = full_res_array.chunksize
+    print(chunksize)
+    print(full_res_array.shape)
+    print(zarr_path)
 
     if channel_name is not None:
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}"
                     f" for channel {channel_name}.")
     else:
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}.")
+
+    print(pyramid_dict)
 
     # Compute and write lower-resolution levels
     for level in range(1, len(pyramid_dict)):
@@ -310,14 +321,18 @@ def _determine_optimal_contrast(
         if segment_sample:
             sample_threshold = np.percentile(low_res_arr[c], 50)
             sample_mask = low_res_arr[c] > sample_threshold
-            try:
-                contrast_down = int(np.percentile(low_res_arr[c][sample_mask], 0.1))
-            except:
-                contrast_down = int(low_res_arr[c][sample_mask].min())
-            try:
-                contrast_up = int(np.percentile(low_res_arr[c][sample_mask], 99.9))
-            except:
-                contrast_up = int(low_res_arr[c][sample_mask].max())
+            if np.sum(sample_mask) == 0:
+                contrast_down = 0
+                contrast_up = 2**16-1
+            else:
+                try:
+                    contrast_down = int(np.percentile(low_res_arr[c][sample_mask], 0.1))
+                except:
+                    contrast_down = int(low_res_arr[c][sample_mask].min())
+                try:
+                    contrast_up = int(np.percentile(low_res_arr[c][sample_mask], 99.9))
+                except:
+                    contrast_up = int(low_res_arr[c][sample_mask].max())
         else:
             try:
                 contrast_down = int(np.percentile(low_res_arr[c], 0.1))

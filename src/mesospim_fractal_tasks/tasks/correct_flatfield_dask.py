@@ -33,7 +33,7 @@ from scipy.ndimage import zoom
 from dask_image import ndfilters
 
 from mesospim_fractal_tasks.utils.models import (
-    BaSiCPyModelParams, IlluminationModel)
+    BaSiCPyModelParams, IlluminationModel, ProxyArray)
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
 from mesospim_fractal_tasks.utils.zarr_utils import (
     _determine_optimal_contrast, _update_omero_channels, 
@@ -174,6 +174,7 @@ def collect_fovs(
     pixel_sizes_yx: list[float],
     n_zplanes: int,
     z_levels: Optional[list[int]],
+    is_proxy: bool,
 ) -> da.Array:
     """
     Collect FOVs.
@@ -191,15 +192,19 @@ def collect_fovs(
         n_zplanes (int): Maximum number of z-planes to collect.
         z_levels (Optional[tuple[int, int]): Max z level of z-planes to collect 
             (top and bottom).
+        is_proxy (bool): Whether the image is a proxy image.
     
     Returns:
         ROI_data (np.ndarray): Array of FOVs.
     """
 
     # Load corresponding resolution image
-    image_arr = da.from_zarr(zarr_path / str(resolution_level))[channel_index]
+    if is_proxy:
+        image_arr = ProxyArray.open(zarr_path, requested_level=resolution_level)
+    else:
+        image_arr = da.from_zarr(zarr_path / str(resolution_level))
     FOV_ROI_df = ad.read_zarr(zarr_path / "tables" / "FOV_ROI_table").to_df()
-    z_size = image_arr.shape[0]
+    z_size = image_arr.shape[1]
     
     if FOV_list is not None:
         assert set(FOV_list).issubset(range(len(FOV_ROI_df.index))), ("FOV list contains FOVs "
@@ -256,10 +261,13 @@ def collect_fovs(
             for idx in z_idxs:
                 if n_ROIs < n_zplanes:
                     n_ROIs += 1
-                    region = (slice(idx, idx+1), 
-                              slice(y_start, y_end), 
-                              slice(x_start, x_end))
-                    ROI_data.append(image_arr[region])
+                    region = (
+                        slice(channel_index, channel_index+1),
+                        slice(idx, idx+1), 
+                        slice(y_start, y_end), 
+                        slice(x_start, x_end)
+                    )
+                    ROI_data.append(image_arr[region][0])
                 else: 
                     break
             logger.info(f"Total number of z planes collected: {n_ROIs}/{n_zplanes}")
@@ -273,7 +281,7 @@ def collect_fovs(
 
 def correct_FOV(
     FOV_dask: da.Array,
-    i_FOV: int,
+    i_FOV: int,     # compatibility with channel parallelisation function
     illum_profiles: IlluminationModel,
 ) -> da.Array:
     """
@@ -478,6 +486,10 @@ def correct_flatfield(
     create_zarr_pyramid(zarr_path, new_zarr_name=new_zarr_path.name, pyramid_dict=pyramid_dict)
 
     # Lazily load highest-res level from original zarr array
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks:
+        is_proxy = True
     image_arr = da.from_zarr(Path(zarr_path, "0"))
     z_size = image_arr.shape[1]
 
@@ -507,7 +519,7 @@ def correct_flatfield(
         full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
     )
     FOV_shape = (indices[0][-3], indices[0][-1])
-
+    
     # Set dask cluster
     client = None
     cluster = None
@@ -528,6 +540,7 @@ def correct_flatfield(
                 pixel_sizes_yx=pxl_sizes_yx,
                 n_zplanes=n_zplanes,
                 z_levels=z_levels,
+                is_proxy=is_proxy,
             )
             if models_folder is None:
                 if FOV_list is not None:
@@ -612,6 +625,7 @@ def correct_flatfield(
                 channel_name=channel_name,
                 channel_index=channel_idx,
                 full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+                is_proxy=is_proxy,
                 correct_func=correct_FOV,
                 correct_func_kwargs={
                     "illum_profiles": illum_prof_f,

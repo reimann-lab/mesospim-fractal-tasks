@@ -31,7 +31,7 @@ from fractal_tasks_core.channels import (
 )
 from collections.abc import Callable
 from fractal_tasks_core.ngff import load_NgffImageMeta
-from multiview_stitcher import msi_utils, ngff_utils, mv_graph, misc_utils, weights, param_utils
+from multiview_stitcher import msi_utils, ngff_utils, mv_graph, weights, param_utils
 from multiview_stitcher.fusion import (process_output_stack_properties,
                                        process_output_chunksize,
                                        normalize_chunks,
@@ -40,6 +40,8 @@ from multiview_stitcher.fusion import (process_output_stack_properties,
 from multiview_stitcher.registration import (link_quality_metric_func)
 from multiview_stitcher import spatial_image_utils as si_utils
 from spatial_image import to_spatial_image
+
+from mesospim_fractal_tasks.utils.models import ProxyArray
 
 DEFAULT_TRANSFORM_KEY = "affine_metadata"
 
@@ -241,7 +243,7 @@ def prepare_block_fusion(
     
     logger.info(f"Fusing into a an output stack:")
     logger.info(f"- shape: (" + ", ".join([f"{int(output_stack_properties['shape'][dim])}"
-        if dim in sdims else f"{ns_shape[dim]}" for dim in dims])[:-2] + ")")
+        if dim in sdims else f"{ns_shape[dim]}" for dim in dims]) + ")")
 
     # Create Zarr array ONCE
     zarr.create(
@@ -439,11 +441,7 @@ def fuse(
         })
 
         if batch_func is None:
-            print(f'Fusing {np.prod(nblocks)} blocks sequentially...')
-            #for batch in tqdm(
-            #    misc_utils.ndindex_batches(nblocks, n_batch),
-            #    total=int(np.ceil(np.prod(nblocks) / n_batch)),
-            #):
+            logger.info(f'Fusing {np.prod(nblocks)} blocks sequentially...')
                     
             # Sequential fallback
             all_block_ids = list(np.ndindex(*nblocks))
@@ -456,16 +454,6 @@ def fuse(
 
         osp = block_fusion_info["output_stack_properties"]
         osp["shape"] = {dim: int(v) for dim, v in osp["shape"].items()}
-
-        #for batch in tqdm(
-        #    misc_utils.ndindex_batches(nblocks, n_batch),
-        #    total=int(np.ceil(np.prod(nblocks) / n_batch)),
-        #):
-        #    if batch_func is None:
-        #        for block_id in batch:
-        #            fuse_chunk(block_id)
-        #    else:
-        #        batch_func(fuse_chunk, batch, **(batch_func_kwargs or {}))
 
         # Build SpatialImage from zarr array
         fusion_transform_key = transform_key
@@ -1076,6 +1064,7 @@ def get_sim_from_multiscales(
     multiscales_path: Path,
     resolution: int = 0,
     chunks: Optional[tuple[int,int, int, int]] = None,
+    is_proxy: bool = False,
 ):
     """Get a spatial image from a multiscales ngff zarr file
     representing a given resolution level.
@@ -1086,6 +1075,10 @@ def get_sim_from_multiscales(
         Path to the multiscales group in the Zarr file.
     resolution : int, optional
         Resolution level index, by default 0
+    chunks : Optional[tuple[int,int, int, int]], optional
+        Chunks to use for the data, by default None
+    is_proxy : bool, optional
+        Whether the image is a proxy image, by default False
 
     Returns:
     -------
@@ -1100,7 +1093,11 @@ def get_sim_from_multiscales(
         oc.label for oc in get_omero_channel_list(image_zarr_path=multiscales_path)
     ]
 
-    data = da.from_zarr(f"{multiscales_path / Path(str(resolution))}")
+    if is_proxy:
+        proxy_array = ProxyArray.open(multiscales_path, requested_level=resolution)
+        data = proxy_array.get_dask()
+    else:
+        data = da.from_zarr(f"{multiscales_path / Path(str(resolution))}")
 
     if chunks is not None:
         data = data.rechunk(chunks)

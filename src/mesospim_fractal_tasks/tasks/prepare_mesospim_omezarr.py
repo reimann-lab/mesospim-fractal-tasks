@@ -295,6 +295,31 @@ def prepare_mesospim_omezarr(
     """
     Create a tiny proxy OME-Zarr-like directory on disk to insure compatibility between analysis pipeline and
     the OME-Zarr structure output by mesoSPIM.
+
+    Parameters:
+        zarr_dir: Path to the OME-Zarr directory.
+        pattern: Common pattern to identify which OME-Zarr in the dataset directory 
+            are to be converted in case of several OME-Zarr present. Default: "".
+        zarr_name: Name of the OME-Zarr to create/open. If not provided,
+            the name of the dataset directory will be used. If the OME-Zarr already
+            exists, the new image will be appended. The `overwrite` argument handles the
+            overwriting or not of the image if it exists. Default: None.
+        image_name: Name of the `fake` new image to be created. 
+            Default: 'raw_image'.
+        channel_color_file: Path to a JSON file or keyword identifying the JSON 
+            file among provided defaults containing the channel colors information. 
+            Default: "default".
+        num_levels: Number of pyramid levels (including the full resolution level, 
+            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is 
+            recommended to have at least 6 levels. If not provided, the code will use
+            the existing pyramid depth of the OME-Zarr if it is present, otherwise
+            it will estimate the optimal depth based on the size of the image. Default: None.
+            the optimal pyramid depth based on the size of the image. Default: None.
+        chunksize: Chunk size to use for the OME-Zarr image. Smaller chunksizes improve
+            visualisation smoothness but impairs processing efficiency. 
+            Default: (64, 1024, 1024).
+        overwrite: Whether to overwrite OME-Zarr image if it already exists. It will
+            not overwrite the OME-Zarr folder if it already exists. Default: False.
     """
     zarr_dir = Path(zarr_dir)
     logger.info(f"Starting task: `Prepare mesoSPIM OME-Zarr for analysis.`")
@@ -394,12 +419,12 @@ def prepare_mesospim_omezarr(
         chunksize=default_chunksize,
     )
     
-    return 
 
 if __name__ == "__main__":
-    
-    prepare_mesospim_omezarr(
-        zarr_dir="data/Stitched",
-        pattern="test_multitile",
-        overwrite=True
+
+    from fractal_task_tools.task_wrapper import run_fractal_task
+
+    run_fractal_task(
+        task_function=prepare_mesospim_omezarr,
+        logger_name=logger.name,
     )

@@ -10,6 +10,8 @@ from typing import Any, Callable, Optional
 
 from fractal_tasks_core.roi import convert_ROI_table_to_indices
 
+from mesospim_fractal_tasks.utils.models import ProxyArray
+
 logger = logging.getLogger(__name__)
 
 def _set_dask_cluster(
@@ -50,12 +52,17 @@ def correct_per_channel(
     channel_name: str,
     channel_index: int,
     full_res_pxl_sizes_zyx: tuple[float, float, float, float],
+    is_proxy: bool,
     correct_func: Callable[..., da.Array],
     correct_func_kwargs: dict[str, Any],
 ) -> None:
 
-    image_array = da.from_zarr(zarr_path / "0")
+    if is_proxy:
+        image_array = ProxyArray.open(zarr_path, requested_level=0)
+    else:
+        image_array = da.from_zarr(zarr_path / "0")
     new_image_array = zarr.open_array(new_zarr_path / "0")
+    print(new_image_array.shape)
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
@@ -82,6 +89,9 @@ def correct_per_channel(
 
         corrected_FOV = correct_func(image_array[region], i_ROI,
                                      **correct_func_kwargs)
+        print(corrected_FOV.shape)
+        print(corrected_FOV.dtype)
+        print(corrected_FOV.chunksize)
         
         # Write to disk
         logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")

@@ -9,7 +9,7 @@ import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
 import shutil
-from typing import  Any
+from typing import Any, Sequence
 from pydantic import validate_call
 import numpy as np
 import dask.array as da
@@ -36,11 +36,98 @@ from mesospim_fractal_tasks.utils.parallelisation import (
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
-from fractal_tasks_core.roi import convert_ROI_table_to_indices
+#from fractal_tasks_core.roi import convert_ROI_table_to_indices
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
 logger = logging.getLogger(__name__)
+
+
+def convert_ROI_table_to_indices(
+    ROI: ad.AnnData,
+    scale_zyx: Sequence[float],
+    cols_xyz_pos: Sequence[str] = [
+        "x_micrometer",
+        "y_micrometer",
+        "z_micrometer",
+    ],
+    cols_xyz_len: Sequence[str] = [
+        "len_x_micrometer",
+        "len_y_micrometer",
+        "len_z_micrometer",
+    ],
+) -> list[list[int]]:
+    """
+    Convert a ROI AnnData table into integer array indices.
+
+    Args:
+        ROI: AnnData table with list of ROIs.
+        scale_zyx:
+            Physical-unit pixel ZYX sizes at the desired pyramid level.
+        level: Pyramid level.
+        coarsening_xy: Linear coarsening factor in the YX plane.
+        cols_xyz_pos: Column names for XYZ ROI positions.
+        cols_xyz_len: Column names for XYZ ROI edges.
+
+    Raises:
+        ValueError:
+            If any of the array indices is negative.
+
+    Returns:
+        Nested list of indices. The main list has one item per ROI. Each ROI
+            item is a list of six integers as in `[start_z, end_z, start_y,
+            end_y, start_x, end_x]`. The array-index interval for a given ROI
+            is `start_x:end_x` along X, and so on for Y and Z.
+    """
+    # Handle empty ROI table
+    if len(ROI) == 0:
+        return []
+
+    # Set pyramid-level pixel sizes
+    pxl_size_z, pxl_size_y, pxl_size_x = scale_zyx
+
+    x_pos, y_pos, z_pos = cols_xyz_pos[:]
+    x_len, y_len, z_len = cols_xyz_len[:]
+
+    list_indices = []
+    for ROI_name in ROI.obs_names:
+        # Extract data from anndata table
+        x_micrometer = ROI[ROI_name, x_pos].X[0, 0]
+        y_micrometer = ROI[ROI_name, y_pos].X[0, 0]
+        z_micrometer = ROI[ROI_name, z_pos].X[0, 0]
+        len_x_micrometer = ROI[ROI_name, x_len].X[0, 0]
+        len_y_micrometer = ROI[ROI_name, y_len].X[0, 0]
+        len_z_micrometer = ROI[ROI_name, z_len].X[0, 0]
+
+        # Identify indices along the three dimensions
+        start_x = x_micrometer / pxl_size_x
+        end_x = (x_micrometer + len_x_micrometer) / pxl_size_x
+        start_y = y_micrometer / pxl_size_y
+        end_y = (y_micrometer + len_y_micrometer) / pxl_size_y
+        start_z = z_micrometer / pxl_size_z
+        end_z = (z_micrometer + len_z_micrometer) / pxl_size_z
+        indices = [start_z, end_z, start_y, end_y, start_x, end_x]
+
+        # Round indices to lower integer
+        indices = list(map(round, indices))
+
+        # Fail for negative indices
+        if min(indices) < 0:
+            raise ValueError(
+                f"ROI {ROI_name} converted into negative array indices.\n"
+                f"ZYX position: {z_micrometer}, {y_micrometer}, "
+                f"{x_micrometer}\n"
+                f"ZYX pixel sizes: {pxl_size_z}, {pxl_size_y}, "
+                f"{pxl_size_x}\n"
+                "Hint: As of fractal-tasks-core v0.12, FOV/well ROI "
+                "tables with non-zero origins (e.g. the ones created with "
+                "v0.11) are not supported."
+            )
+
+        # Append ROI indices to to list
+        list_indices.append(indices[:])
+
+    return list_indices
 
 def print_dict(
     d: dict, 
@@ -168,32 +255,29 @@ def compute_global_normalisation(
     # Lazily load highest-res level from original zarr array
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
     if is_proxy:
-        image_arr = ProxyArray.open(zarr_path, requested_level=num_levels-1)
+        image_arr = ProxyArray.open(zarr_path, requested_level=(num_levels-1))
     else:
         image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
-    full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
+    scale = ngff_image_meta.get_pixel_sizes_zyx(level=num_levels-1)
+    print(FOV_ROI_table.to_df())
     original_indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=(num_levels-1),
-        coarsening_xy=coarsening_xy,
+        scale_zyx=scale,
         cols_xyz_pos= [
         "x_micrometer_original",
         "y_micrometer_original",
         "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
     )
     zarr_indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=(num_levels-1),
-        coarsening_xy=coarsening_xy,
+        scale_zyx=scale,
         cols_xyz_pos= [
         "x_micrometer",
         "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
 
     logger.info(f"Start computing difference of the mean between FOVs...")

@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import dask.array as da
 import json
+from mesospim_fractal_tasks.utils.zarr_utils import _estimate_pyramid_depth
 
 logger = logging.getLogger(__name__)
 
@@ -187,8 +188,13 @@ class ProxyArray:
 
         # Verify that requested level is available
         if int(requested_level) > (len(pyramid_dict)-1):
-            raise ValueError(f"Requested pyramid level {requested_level} not available."
-                             f"Maximum available level is {len(pyramid_dict)-1}.")
+            level_to_build = requested_level
+            requested_level = len(pyramid_dict)-1
+            logger.info(f"Requested pyramid level {level_to_build} not available."
+                        f"Building pyramid level {level_to_build} using smallest available level"
+                        f" {len(pyramid_dict)-1}.")
+        else:
+            level_to_build = requested_level
         
         # Create proxy dask array
         tiles = manifest["tiles"]
@@ -204,6 +210,25 @@ class ProxyArray:
             col_grid = da.concatenate(col_grid, axis=-2)
             dasks_per_channel.append(col_grid)
         proxy_dask = da.concatenate(dasks_per_channel, axis=0)
+
+        if level_to_build != requested_level:
+            scale = pyramid_dict[str(0)]["scale"]
+            desired_pyramid = _estimate_pyramid_depth(
+                shape=shape,
+                scale=scale,
+            )
+            coarsening_z = 0
+            coarsening_xy = 0
+            for level in range(requested_level, level_to_build):
+                coarsening_z += desired_pyramid[str(level)]["coarsening_z"]
+                coarsening_xy += desired_pyramid[str(level)]["coarsening_xy"]
+            proxy_dask = da.coarsen(
+                np.mean,
+                proxy_dask,
+                {1: int(coarsening_z), 2: int(coarsening_xy), 3: int(coarsening_xy)},
+                trim_excess=True,
+            ).astype(proxy_dask.dtype)
+            proxy_dask = proxy_dask.rechunk([1,] + chunksize)
 
         return cls(
             source_path=source_zarr_path,

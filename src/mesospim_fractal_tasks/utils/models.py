@@ -1,12 +1,29 @@
-from typing import Optional
+from typing import Optional, Any
 from pathlib import Path
 from pydantic import BaseModel, ConfigDict
 import numpy as np
 import logging
 import dask.array as da
+import json
 
 logger = logging.getLogger(__name__)
 
+class Channel(BaseModel):
+    """
+    Channel information.
+
+    Attributes:
+        label: Channel label.
+        laser_wavelength: Laser wavelength in nm.
+        color: Channel color in hex format.
+    """
+    label: str
+    laser_wavelength: int
+    color: str
+    max_intensity: Optional[float] = None
+    start_contrast: Optional[float] = None
+    end_contrast: Optional[float] = None
+    min_intensity: Optional[float] = None
 
 class DimTuple(BaseModel):
     """
@@ -116,3 +133,91 @@ class BaSiCPyModelParams(BaseModel):
     smoothness_flatfield: float = 1.0
     working_size: Optional[list[int]] = None
 
+
+class ProxyArray:
+    """
+    Array-like object that mimics (C,Z,Y,X) slicing but reads per-tile stores.
+    """
+
+    def __init__(
+        self,
+        *,
+        source_path: Path,
+        proxy_dask: da.Array,
+        shape: tuple[int,int,int,int],
+        dtype: np.dtype,
+        pyramid_dict: dict[str, Any],
+        requested_level: int | str = 0,
+        requested_chunksize: tuple[int,int,int],
+    ):
+        self.source_path = Path(source_path)
+        self._dask = proxy_dask
+        self.shape = shape
+        self.dtype = np.dtype(dtype)
+        self.pyramid_dict = pyramid_dict
+        self.requested_level = requested_level
+        self.chunksize = requested_chunksize
+        self.ndim = len(self.shape)
+
+    @classmethod
+    def open(
+        cls, 
+        proxy_zarr_path: Path, 
+        requested_level: int | str = 0,
+    ) -> "ProxyArray":
+        
+        proxy_manifest_path = Path(proxy_zarr_path / "proxy_manifest.json")
+        manifest = json.load(open(proxy_manifest_path, "r"))
+        if manifest.get("manifest", {}).get("type") != "mesospim_proxy_v1":
+            raise ValueError("Not a mesospim proxy OME-Zarr")
+        manifest = manifest["manifest"]
+        
+        source_zarr_path = Path(manifest["source_omezarr"])
+        channels = manifest["channels"]
+        nb_channels = len(channels)
+
+        # Global fake mosaic extents derived from ROI table
+        final_z_pixels = int(manifest["shape"][1])
+        final_y_pixels = int(manifest["shape"][2])
+        final_x_pixels = int(manifest["shape"][3])
+        dtype = np.dtype(manifest["dtype"])
+        pyramid_dict = manifest["pyramid"]
+        chunksize = manifest["chunksize_zyx"]
+        shape = (nb_channels, final_z_pixels, final_y_pixels, final_x_pixels)
+
+        # Verify that requested level is available
+        if int(requested_level) > (len(pyramid_dict)-1):
+            raise ValueError(f"Requested pyramid level {requested_level} not available."
+                             f"Maximum available level is {len(pyramid_dict)-1}.")
+        
+        # Create proxy dask array
+        tiles = manifest["tiles"]
+        dasks_per_channel = []
+        for channel_tiles in tiles.values():
+            col_grid = []
+            for col in channel_tiles:
+                row_grid = []
+                for row in col:
+                    row_grid.append(da.from_zarr(source_zarr_path / row["store_relpath"] / str(requested_level))[None,:,:,:])
+                row_grid = da.concatenate(row_grid, axis=-1)
+                col_grid.append(row_grid)
+            col_grid = da.concatenate(col_grid, axis=-2)
+            dasks_per_channel.append(col_grid)
+        proxy_dask = da.concatenate(dasks_per_channel, axis=0)
+
+        return cls(
+            source_path=source_zarr_path,
+            proxy_dask=proxy_dask,
+            shape=shape,
+            dtype=dtype,
+            pyramid_dict=pyramid_dict,
+            requested_level=requested_level,
+            requested_chunksize=chunksize,
+        )
+    
+    def get_dask(self) -> da.Array:
+        return self._dask
+
+    def __getitem__(self, key) -> da.Array:
+        return self._dask[key]
+    

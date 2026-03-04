@@ -23,8 +23,8 @@
 [camera_type] Photometrics
 [camera_exposure] 0.01
 [camera_line_interval] 7.5e-05
-[x_pixels] 4
-[y_pixels] 3
+[x_pixels] 3
+[y_pixels] 4
 
 [TIMING INFORMATION] 
 [Started stack] 20250930-185801
@@ -61,8 +61,8 @@
 [camera_type] Photometrics
 [camera_exposure] 0.01
 [camera_line_interval] 7.5e-05
-[x_pixels] 4
-[y_pixels] 3
+[x_pixels] 3
+[y_pixels] 4
 
 [TIMING INFORMATION] 
 [Started stack] 20250930-190005

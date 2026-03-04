@@ -53,7 +53,7 @@ def test_mesospim_to_omezarr_writes_correct_data_h5(
         pattern="example",
         zarr_name="output_h5",
         num_levels=2,
-        chunksize=(2, 3, 4),
+        chunksize=(2, 4, 3),
         overwrite=True,
     )
 

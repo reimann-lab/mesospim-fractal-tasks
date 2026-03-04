@@ -78,6 +78,7 @@ def write_ome_zarr_metadata(
     contrast_limits: Optional[dict[str, dict[str, int]]] = None,
     input_param: dict[str, Any] = {},
     user_channels_path: str = "default",
+    is_proxy: bool = False,
 ) -> None:
     """
     Write OME-Zarr metadata to the provided Zarr group.
@@ -91,6 +92,7 @@ def write_ome_zarr_metadata(
         input_param (dict[str, Any]): Input parameters for the task.
         user_channels_path (str): Path to the JSON file or keyword identifying the JSON 
             file containing the channel colors information.
+        is_proxy (bool): Whether the image is a proxy image.
     Returns:
         None
     """
@@ -114,9 +116,6 @@ def write_ome_zarr_metadata(
                         pyramid_dict[level]["scale"][0],   
                         pyramid_dict[level]["scale"][1],
                         pyramid_dict[level]["scale"][2]
-                        #meta_df.loc[0, "z_scale"],   
-                        #meta_df.loc[0, "y_scale"] * coarsening_xy**(level),
-                        #meta_df.loc[0, "x_scale"] * coarsening_xy**(level)
                         ]
                     }
                 ]
@@ -157,7 +156,7 @@ def write_ome_zarr_metadata(
                 "color": channel["color"],
                 "index": c,
                 "window": {
-                    "max": contrast_end * 10,
+                    "max": min(contrast_end * 10, 2**16-1),
                     "end": contrast_end,
                     "start": contrast_start,
                     "min": 0
@@ -195,8 +194,13 @@ def write_ome_zarr_metadata(
         zarr_group.attrs["acquisition_metadata"] = {
             "channels": acquisition_info
         }
+
+        if is_proxy:
+            task_name = "prepare_mesospim_omezarr"
+        else:
+            task_name = "mesospim_to_omezarr"
         zarr_group.attrs["fractal_tasks"] = {
-            "mesospim_to_omezarr": {
+            task_name: {
                 "version": __version__.split("dev")[0][:-1],
                 "commit": __commit__,
                 "input_parameters": input_param,
@@ -235,7 +239,10 @@ def check_n_pixels(
     x_pos = meta_df["x_pos"].sort_values().unique()
     y_pos = meta_df["y_pos"].sort_values().unique()
 
+    # Default for mesoSPIM output...
     if len(x_pos) == 1 or len(y_pos) == 1:
+        meta_df["y_n_pixels"] = x_pixels
+        meta_df["x_n_pixels"] = y_pixels
         return
 
     x_overlap = x_pixels - (round(abs(x_pos[1] - x_pos[0]) / x_scale))
@@ -954,7 +961,7 @@ def mesospim_to_omezarr(
         image_path, len(pyramid_dict), segment_sample=True)
 
     # Write OME-ZARR metadata
-    source_file_name = raw_image_paths[0].stem
+    source_file_name = raw_image_paths[0].stem + extension
     write_ome_zarr_metadata(
         zarr_group=image_group,
         meta_df=meta_df,

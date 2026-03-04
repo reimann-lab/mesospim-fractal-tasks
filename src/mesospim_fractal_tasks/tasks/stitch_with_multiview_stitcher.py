@@ -132,11 +132,17 @@ def stitch_with_multiview_stitcher(
     fov_roi_table = ad.read_zarr(Path(zarr_path, "tables/FOV_ROI_table")).to_df()
     input_transform_key = "fractal_input"
 
+    # Detect if it is a proxy OME-Zarr
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks:
+        is_proxy = True
+
     # Load FOVs for registration as spatial image
     if registration_resolution_level is None:
         registration_resolution_level = num_levels-1
     xim_well_reg = get_sim_from_multiscales(
-        Path(zarr_url), resolution=registration_resolution_level
+        Path(zarr_url), resolution=registration_resolution_level, is_proxy=is_proxy
     )
 
     # Keep track of the original chunksize
@@ -235,7 +241,8 @@ def stitch_with_multiview_stitcher(
         # Load the full-resolution image for fusion
         xim_well = get_sim_from_multiscales(zarr_path, 
                                             resolution=0, 
-                                            chunks=(1,) + fusion_chunks)
+                                            chunks=(1,) + fusion_chunks,
+                                            is_proxy=is_proxy)
         msims_fusion = get_tiles_from_sim(
             xim_well, fov_roi_table, transform_key=input_transform_key
         )
@@ -278,7 +285,7 @@ def stitch_with_multiview_stitcher(
                          "max_workers": max_workers},
     
     logger.info(f"Starting fusing tiles...")
-    fused = fusion.fuse(
+    fusion.fuse(
         sims,
         transform_key=fusion_transform_key,
         drop_t=True,

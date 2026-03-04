@@ -57,26 +57,10 @@
             "type": "string",
             "description": "Path to a JSON file or keyword identifying the JSON file among provided defaults containing the channel colors information. Default: \"default\"."
           },
-          "exclusion_list": {
-            "default": [],
-            "items": {
-              "type": "integer"
-            },
-            "title": "Exclusion List",
-            "type": "array",
-            "description": "List of tiles to exclude from being converted, e.g. empty signal tiles. Default: []."
-          },
           "num_levels": {
-            "default": 6,
             "title": "Num Levels",
             "type": "integer",
-            "description": "Number of pyramid levels (including the full resolution level, so if you want no pyramid, then num_levels=1). For a 1Tb dataset, it is recommended to have at least num_levels=6. Default: 6."
-          },
-          "coarsening_factor": {
-            "default": 2,
-            "title": "Coarsening Factor",
-            "type": "integer",
-            "description": "Coarsening factor to apply to the pyramid. New pyramid resolution level will have an image with X/Y axis size divided by this factor. Default: 2."
+            "description": "Number of pyramid levels (including the full resolution level, so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is recommended to have at least 6 levels. If not provided, the code will estimate the optimal pyramid depth based on the size of the image. Default: None."
           },
           "chunksize": {
             "default": [
@@ -548,11 +532,6 @@
                 "$ref": "#/$defs/DimTuple"
               }
             ],
-            "default": {
-              "z": 0,
-              "y": 0,
-              "x": 0
-            },
             "title": "Overlap Tolerance",
             "description": "Extend overlap regions considered for pairwise registration. Currently, the overlap between tiles as referenced in the metadata is used. To go beyond this, the following options are available: - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
           },
@@ -582,6 +561,12 @@
             ],
             "title": "Fusion Chunksize",
             "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. It also corresponds to the chunksize of the output zarr. Setting smaller chunks can reduce memory usage but increase the time to fuse the tiles. If None, the chunksize of the raw image is used. Default: None."
+          },
+          "erase_source_image": {
+            "default": false,
+            "title": "Erase Source Image",
+            "type": "boolean",
+            "description": "If `True`, the source image will be erased after stitching. Default: False."
           }
         },
         "required": [

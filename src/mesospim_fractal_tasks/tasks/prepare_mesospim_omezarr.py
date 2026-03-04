@@ -164,11 +164,13 @@ def build_fov_roi_table(
 
     roi_df = pd.DataFrame()
     for i, row in ch0_df.iterrows():
+        x_pos = abs(row["x_pos"] - ch0_df["x_pos"].max())
+        y_pos = abs(row["y_pos"] - ch0_df["y_pos"].max())
         roi_df.loc[i, "z_micrometer"] = 0.0
         roi_df.loc[i, "y_micrometer"] = y_counter * y_scale
         roi_df.loc[i, "x_micrometer"] = x_counter * x_scale
-        roi_df.loc[i, "y_micrometer_original"] = row["y_pos"]
-        roi_df.loc[i, "x_micrometer_original"] = row["x_pos"]
+        roi_df.loc[i, "y_micrometer_original"] = y_pos
+        roi_df.loc[i, "x_micrometer_original"] = x_pos
         roi_df.loc[i, "len_z_micrometer"] = z_pixels * z_scale
         roi_df.loc[i, "len_y_micrometer"] = y_pixels * y_scale
         roi_df.loc[i, "len_x_micrometer"] = x_pixels * x_scale
@@ -325,7 +327,7 @@ def prepare_mesospim_omezarr(
     logger.info(f"Starting task: `Prepare mesoSPIM OME-Zarr for analysis.`")
 
     # Find mesoSPIM OME-Zarr in zarr dir
-    root_omezarr = list(Path(zarr_dir).glob(f"*{pattern}*.ome.zarr"))
+    root_omezarr = list(Path(zarr_dir).glob(f"*{pattern}*.ome.zarr".replace("**", "*")))
     if len(root_omezarr) != 1:
         raise ValueError(f"Found {len(root_omezarr)} OME-Zarr in {zarr_dir} for given "
                          f"pattern {pattern}. Expected only one.")

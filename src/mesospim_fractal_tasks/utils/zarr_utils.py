@@ -268,17 +268,12 @@ def build_pyramid(
     zarr_path = Path(zarr_url)
     full_res_array = da.from_zarr(str(zarr_path / "0"))
     chunksize = full_res_array.chunksize
-    print(chunksize)
-    print(full_res_array.shape)
-    print(zarr_path)
 
     if channel_name is not None:
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}"
                     f" for channel {channel_name}.")
     else:
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}.")
-
-    print(pyramid_dict)
 
     # Compute and write lower-resolution levels
     for level in range(1, len(pyramid_dict)):

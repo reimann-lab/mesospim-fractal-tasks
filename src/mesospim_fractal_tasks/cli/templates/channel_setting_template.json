@@ -2,19 +2,16 @@
     "wavelength_0": {
         "label": "label_0",
         "color": "hexadecimal code 0 (e.g. C47C3E)",
-        "dye_wavelength": "NaN",
         "laser_wavelength": "wavelength_0 (must correspond to the entry title)"
     },
     "wavelength_1": {
         "label": "label_1",
         "color": "hexadecimal code 1",
-        "dye_wavelength": "NaN",
         "laser_wavelength": "wavelength_1"
     },
     "wavelength_2": {
         "label": "label_2",
         "color": "hexadecimal code 2",
-        "dye_wavelength": "NaN",
         "laser_wavelength": "wavelength_2"
     }
 }

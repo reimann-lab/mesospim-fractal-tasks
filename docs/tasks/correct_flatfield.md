@@ -26,20 +26,19 @@ There are two ways to specify empty data:
 #### **A. Whole empty tiles**
 If one or more entire tiles are empty:  
 
-- Set the **tile number** in the parameters.
+- Set the **tile number** in the parameters (see the [FOV list](#fov-list) parameter).
 
 If tile numbers are provided, the task extracts those tiles and uses them for the estimation.
 
 #### **B. Only part of a tile is empty**
 If there is no full tiles that contain only background but there is enough background at 
-the **top or bottom** of tiles:  
+the **top or bottom** of tiles (typically when the sample is roundish, the corners of the full field of view have a lot of emptiness),
+then you can still model the flatfield image using the raw data. For this:
 
-- Provide the **start** and **end** Z-levels of the empty region.  
-- Provide the **tile number** where these subvolumes must be extracted (optional).  
+- Provide the **start** and **end** Z-levels of the empty region (see the [Z levels](#z-levels) parameter).
+- (optional) Provide the **tile number** where these subvolumes must be extracted (see the [FOV list](#fov-list) parameter). This is optional, if not provided, the task automatically uses **the four corner tiles** to extract the top and bottom subvolume.
 
 The task will then extract a subvolume up to the **Z start** and down to the **Z end**, and uses it for the estimation.
-
-If no tile number is provided, the task automatically uses **the four corner tiles** to extract the top and bottom tile subvolume.
 
 ---
 
@@ -48,7 +47,7 @@ If no tile number is provided, the task automatically uses **the four corner til
 If your dataset contains **no empty tiles or background regions**, the task computes a flat-field using a **statistical illumination model (BaSiCPy)**.
 
 This method works even when the sample fills most of the field of view. It produces a robust estimation even when no explicit flat-field can be derived. it is however more computationally expensive and should be used only when no flat-field is available.
-It is set when:  
+It is used by the task when:  
 
 - No tile numbers are provided.  
 - No start/end Z-levels are provided.  
@@ -60,8 +59,8 @@ It is set when:
 
 | Scenario                        | Flat-field source                    |
 | ------------------------------- | ------------------------------------ |
-| `profiles.npz` file provided    | Uses measured flat-field (best)      |
-| Empty tiles or empty subvolumes | Estimates flat-field from background |
+| `profiles.npz` file provided ([model folder](#models-folder) parameter) | Uses measured flat-field (best)      |
+| Empty tiles or empty subvolumes ([FOV list](#fov-list) and/or [Z levels](#z-levels) parameters) | Estimates flat-field from background |
 | No empty regions                | Computes flat-field via BaSiCPy      |
 
 
@@ -86,18 +85,15 @@ This parameter allows you to give the list of tiles to process that contain only
 !!! Note
     Typically, the mesoSPIM multitile output file has a tile ordering that follows an inverted `N` shape, e.g. the first tile is the top left tile, the second tile is the one below it, and so on. Once it reaches the bottom of the column, the next tile starts at the top of the next column, from left to right:
 
-        tile 00 - tile 03 - tile 06
-           |         |         |
         tile 01 - tile 04 - tile 07
            |         |         |
         tile 02 - tile 05 - tile 08
-
-!!! Important
-    The tile numbering starts at 0!
+           |         |         |
+        tile 03 - tile 06 - tile 09
 
 ### Z-Levels
 
-This parameter allows you to specify the maximum number of z-levels to process at the top and bottom of the 3D tile stack. In case there is no tile that is completely empty, but some have sufficient empty space at the top or bottom of the stack, you can specify these of z-level limits. Z planes will then be sampled from the top and bottom of the stack, and the flatfield will be computed from these planes. Typically, if the sample has a round shape, there is often empty space in the corners of the image. This parameter allows you to use this empty space to compute the flatfield.
+This parameter allows you to specify the maximum number of z-levels to process at the top and bottom of the 3D tile stack. In case there is no tile that is completely empty, but some have sufficient empty space at the top or bottom of the stack, you can specify these z-level up and down limits. Z planes will then be sampled from the top and bottom of the stack, and the flatfield will be computed from these planes. Typically, if the sample has a round shape, there is often empty space in the corners of the image. This parameter allows you to use this empty space to compute the flatfield.
 
 This parameter works in combination with the [FOV List](#fov-list) parameter. If both are provided, the z planes will be sampled from the provided FOV list (up to the limits provided), otherwise the z planes will be sampled from the four tiles at the corners of the image.
 

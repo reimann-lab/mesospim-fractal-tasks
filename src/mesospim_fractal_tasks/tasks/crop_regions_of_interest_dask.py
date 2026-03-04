@@ -30,7 +30,7 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
                                                      _write_label_metadata,
                                                      _store_label_to_zarr,
                                                      _estimate_pyramid_depth)
-from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.utils.models import DimTuple, ProxyArray
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 logger = logging.getLogger(__name__)
@@ -162,6 +162,7 @@ def save_roi_parallel(
     pyramid_dict: dict[str, dict],
     chunksize: tuple[int, int, int, int],
     crop_or_roi: str,
+    is_proxy: bool,
 ) -> None:
     """
     Save a ROI from a multi-channel OME-Zarr image to a new OME-Zarr image.
@@ -174,8 +175,12 @@ def save_roi_parallel(
         pyramid_dict (dict[str, dict]): Dictionary containing the scale and coarsening factors for each level.
         chunksize (tuple[int, int, int]): Chunk size to use for the new ROI image(s).
         crop_or_roi (str): Whether the ROI is a crop or a ROI.
+        is_proxy (bool): Whether the image is a proxy image.
     """
-    full_res_arr = da.from_zarr(zarr_path/"0")
+    if is_proxy:
+        full_res_arr = ProxyArray.open(zarr_path, requested_level=0)
+    else:
+        full_res_arr = da.from_zarr(zarr_path/"0")
     full_shape = full_res_arr.shape
     z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
                                                     coords['z_end'] + scale[0],
@@ -342,7 +347,7 @@ def crop_regions_of_interest(
 
     # Load full resolution image and NGFF metadata
     logger.info(f"Loading full resolution image...")
-    full_res_arr = zarr.open_array(zarr_path/"0", mode="r")
+    full_res_arr = zarr.open_array(zarr_path / "0", mode="r")
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = image_meta.get_pixel_sizes_zyx(level=0)
     chunk_size = list(full_res_arr.chunks)
@@ -352,6 +357,11 @@ def crop_regions_of_interest(
                 chunk_size[(i+1)] = int(chunksize[dim])
     chunk_size = tuple(chunk_size)
     logger.info(f"Chunksize set to: {chunk_size}")
+
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks:
+        is_proxy = True
 
     # Find coordinates table in OME-Zarr
     logger.info("Loading ROI coordinates table.")
@@ -441,7 +451,8 @@ def crop_regions_of_interest(
                                 scale=tuple(scale),
                                 pyramid_dict=pyramid_dict,
                                 chunksize=chunk_size,
-                                crop_or_roi=crop_or_roi)
+                                crop_or_roi=crop_or_roi,
+                                is_proxy=is_proxy)
                 
                 # Write pyramid of resolution
                 logger.info(f"Building pyramid of resolution for {crop_path.name}")
@@ -472,6 +483,7 @@ def crop_regions_of_interest(
                                 pyramid_dict=roi_params["roi_pyramid"],
                                 chunksize=chunk_size,
                                 crop_or_roi=crop_or_roi,
+                                is_proxy=is_proxy,
                                 pure=False,
                                 retries=1)
                     futures.append(fut)
@@ -496,8 +508,14 @@ def crop_regions_of_interest(
         # Add roi masks in the source image
         for _, roi_params in enumerate(parallelisation_list):
             lowest_level = image_meta.num_levels - 1
-            lowest_res_arr = zarr.open_array(f"{zarr_path}/{lowest_level}", mode="r")
-            low_scale = image_meta.get_pixel_sizes_zyx(level=lowest_level)
+            if is_proxy:
+                lowest_res_arr = ProxyArray.open(zarr_path, requested_level=lowest_level)
+                low_scale = lowest_res_arr.pyramid_dict["0"]["scale"]
+                chunksize = lowest_res_arr.chunksize
+            else:
+                lowest_res_arr = zarr.open_array(f"{zarr_path}/{lowest_level}", mode="r")
+                low_scale = image_meta.get_pixel_sizes_zyx(level=lowest_level)
+                chunksize = lowest_res_arr.chunks[1:]
             low_shape = lowest_res_arr.shape
             roi_mask = np.zeros(low_shape[1:], dtype=np.uint8)
             coords = roi_params["roi_coords"]
@@ -538,7 +556,7 @@ def crop_regions_of_interest(
             _store_label_to_zarr(
                 zarr_path / "labels" / roi_params["roi_id"],
                 label_mask=roi_mask,
-                chunksize=lowest_res_arr.chunks[1:],
+                chunksize=chunksize,
                 overwrite=True
             )
 

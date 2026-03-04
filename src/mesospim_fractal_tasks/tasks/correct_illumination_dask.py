@@ -29,6 +29,7 @@ from mesospim_fractal_tasks.utils.zarr_utils import (
     create_zarr_pyramid,
     _get_pyramid_structure,
     build_pyramid)
+from mesospim_fractal_tasks.utils.models import ProxyArray
 from mesospim_fractal_tasks.utils.parallelisation import (
     _set_dask_cluster,
     correct_per_channel)
@@ -55,6 +56,7 @@ def compute_z_correction_profile(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
+    is_proxy: bool,
 ) -> np.ndarray:
     """
     Compute model of z-correction factor to correct uneven illumination in Z direction 
@@ -64,6 +66,7 @@ def compute_z_correction_profile(
         zarr_path (Path): Path to the OME-Zarr image to be processed.
         channel_name (str): Name of the channel to process.
         channel_index (int): Index of the channel to process.
+        is_proxy (bool): Whether the image is a proxy image.
 
     Returns:
         z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the per-z correction 
@@ -73,7 +76,10 @@ def compute_z_correction_profile(
                  "for all FOVs.")
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     num_levels = ngff_image_meta.num_levels
-    channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
+    if is_proxy:
+        channel_arr = ProxyArray.open(zarr_path, requested_level=num_levels-1)[channel_index]
+    else:
+        channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
 
     z_profile_percentile = []
     z_profile_percentile= np.median(np.median(
@@ -133,7 +139,8 @@ def compute_global_normalisation(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
-    z_profile: da.Array
+    z_profile: da.Array,
+    is_proxy: bool,
 ) -> dict[str, float]:
     """
     Compute the global normalisation factors for each ROI to correct for uneven 
@@ -145,6 +152,7 @@ def compute_global_normalisation(
         channel_index (int): Index of the channel to process.
         z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the 
             per-z correction factors.
+        is_proxy (bool): Whether the image is a proxy image.
     
     Returns:
         dict[str, float]: Dictionary mapping ROI names to their corresponding gains.
@@ -159,7 +167,10 @@ def compute_global_normalisation(
 
     # Lazily load highest-res level from original zarr array
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
-    image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
+    if is_proxy:
+        image_arr = ProxyArray.open(zarr_path, requested_level=num_levels-1)
+    else:
+        image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
@@ -300,6 +311,10 @@ def correct_illumination(
         channel_dict[channel.label] = channel.index
 
     # Get relevant metadata
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks:
+        is_proxy = True
     image_array = da.from_zarr(zarr_path / "0")
     ngff_image_meta = load_NgffImageMeta(zarr_url)
     pyramid_dict = _get_pyramid_structure(zarr_path)
@@ -318,7 +333,8 @@ def correct_illumination(
         if z_correction:
             z_profile[channel_name] = compute_z_correction_profile(zarr_path, 
                                                         channel_name=channel_name, 
-                                                        channel_index=channel_index)
+                                                        channel_index=channel_index,
+                                                        is_proxy=is_proxy)
             
             # Make z_profile dask-aligned with input chunks to avoid bloated graphs
             z_profile[channel_name] = da.from_array(z_profile[channel_name], 
@@ -329,7 +345,8 @@ def correct_illumination(
         gain_factors[channel_name] = compute_global_normalisation(zarr_path, 
                                                     channel_name=channel_name, 
                                                     channel_index=channel_index,
-                                                    z_profile=z_profile[channel_name])
+                                                    z_profile=z_profile[channel_name],
+                                                    is_proxy=is_proxy)
 
     with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
         with Client(cluster) as client:
@@ -343,6 +360,7 @@ def correct_illumination(
                     channel_name=channel_name,
                     channel_index=channel_idx,
                     full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+                    is_proxy=is_proxy,
                     correct_func=correct_FOV,
                     correct_func_kwargs={"gain_factors": gain_factors[channel_name],
                                         "z_profile": z_profile[channel_name]},

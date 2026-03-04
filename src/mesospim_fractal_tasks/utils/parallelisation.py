@@ -19,12 +19,12 @@ def _set_dask_cluster(
 ) -> LocalCluster:
     """
     Set up a dask cluster for distributed computing.
-    
+
     Returns:
         Dask cluster.
     """
 
-    
+
     cpus = os.environ.get("SLURM_CPUS_PER_TASK", None)
     if cpus is None:
         cpus = os.cpu_count()
@@ -62,7 +62,6 @@ def correct_per_channel(
     else:
         image_array = da.from_zarr(zarr_path / "0")
     new_image_array = zarr.open_array(new_zarr_path / "0")
-    print(new_image_array.shape)
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
@@ -89,10 +88,7 @@ def correct_per_channel(
 
         corrected_FOV = correct_func(image_array[region], i_ROI,
                                      **correct_func_kwargs)
-        print(corrected_FOV.shape)
-        print(corrected_FOV.dtype)
-        print(corrected_FOV.chunksize)
-        
+
         # Write to disk
         logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
         corrected_FOV.to_zarr(

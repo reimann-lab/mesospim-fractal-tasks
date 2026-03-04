@@ -26,11 +26,11 @@ def read_metadata_file(
     """
 
     # Define important keys present in the metadata
-    keys = ["laser", "intensity", "zoom", "filter", "shutter", "pixelsize", "z_stepsize", 
+    keys = ["laser", "intensity", "zoom", "filter", "shutter", "pixelsize", "z_stepsize",
             "z_planes", "x_pixels", "y_pixels", "x_pos", "y_pos"]
-    
+
     metadata = {}
-    
+
     with open(metadata_path, "r") as f:
         for line in f:
             line = line.lower()
@@ -74,13 +74,13 @@ def find_per_tile_omezarr(
 
     Assumes naming: <root_zarr_name>*_Tile{t}_Ch{c}_*.ome.zarr_meta.txt.
     """
-    
+
     # Quick check if number of metadata files matches number of tiles
     nb_tiles = len(list(root_zarr.glob("*.ome.zarr")))
     if nb_tiles == 0:
         raise ValueError(f"No per-tile *.ome.zarr stores found in {root_zarr}")
-    
-    # Search for per tile OME-Zarr in root OME_Zarr 
+
+    # Search for per tile OME-Zarr in root OME_Zarr
     rows = []
     for p in sorted(zarr_dir.glob("*.ome.zarr_meta.txt")):
         m = re.search(r"Tile(\d+)_Ch(\d+)_.*", p.name)
@@ -100,27 +100,27 @@ def find_per_tile_omezarr(
     if len(rows) != nb_tiles:
         raise ValueError(f"Number of metadata txt tile found in the Zarr directory {len(rows)} "
                          f"does not match the number of tiles in the source image {nb_tiles}.")
-    
+
     meta_df = pd.DataFrame(rows)
     meta_df.rename(columns={"laser": "channel"}, inplace=True)
 
     # Correct dtypes
-    meta_df[["intensity", 
-            "x_pos", 
+    meta_df[["intensity",
+            "x_pos",
             "y_pos",
-            "x_scale", 
-            "y_scale", 
-            "z_scale"]] = meta_df[["intensity", 
-                                    "x_pos", 
+            "x_scale",
+            "y_scale",
+            "z_scale"]] = meta_df[["intensity",
+                                    "x_pos",
                                     "y_pos",
-                                    "x_scale", 
-                                    "y_scale", 
+                                    "x_scale",
+                                    "y_scale",
                                     "z_scale"]].astype("float")
-    meta_df[["x_n_pixels", 
-            "y_n_pixels", 
-            "z_n_pixels", 
-            "channel"]] = meta_df[["x_n_pixels", 
-                                    "y_n_pixels", 
+    meta_df[["x_n_pixels",
+            "y_n_pixels",
+            "z_n_pixels",
+            "channel"]] = meta_df[["x_n_pixels",
+                                    "y_n_pixels",
                                     "z_n_pixels",
                                     "channel"]].astype("int")
     if meta_df.loc[0, "intensity"] > 1: # type: ignore
@@ -151,7 +151,7 @@ def build_fov_roi_table(
     ch0_df = ch0_df.reset_index(drop=True)
 
     z_pixels, y_pixels, x_pixels = ch0_df.loc[0, "z_n_pixels"], ch0_df.loc[0, "y_n_pixels"], ch0_df.loc[0, "x_n_pixels"]
-    final_y_pixels = ch0_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
+    final_y_pixels = ch0_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0]
     final_x_pixels = ch0_df.groupby("x_pos")["x_n_pixels"].unique().sum()[0]
 
     z_scale = ch0_df.loc[0, "z_scale"]
@@ -164,8 +164,8 @@ def build_fov_roi_table(
 
     roi_df = pd.DataFrame()
     for i, row in ch0_df.iterrows():
-        x_pos = abs(row["x_pos"] - ch0_df["x_pos"].max())
-        y_pos = abs(row["y_pos"] - ch0_df["y_pos"].max())
+        x_pos = abs(row["x_pos"] - ch0_df.loc[0, "x_pos"])
+        y_pos = abs(row["y_pos"] - ch0_df.loc[0, "y_pos"])
         roi_df.loc[i, "z_micrometer"] = 0.0
         roi_df.loc[i, "y_micrometer"] = y_counter * y_scale
         roi_df.loc[i, "x_micrometer"] = x_counter * x_scale
@@ -214,15 +214,15 @@ def build_proxy(
     tile_specs: dict[int, Any] = {}
     for c, channel in enumerate(channels):
         channel_spec: list[Any] = []
-        ch_df = meta_df[meta_df["channel"] == meta_df["channel"].min()].copy()
+        ch_df = meta_df[meta_df["channel"] == channel].copy()
         ch_df = ch_df.sort_values("tile_id")
         ch_df = ch_df.set_index("tile_id")
-        for col in range(n_cols):
-            col_specs : list[Any] = []
-            for row in range(n_rows):
+        for row in range(n_rows):
+            row_specs : list[Any] = []
+            for col in range(n_cols):
                 tile_id = int(n_rows*col + row)
                 tile = ch_df.loc[tile_id]
-                col_specs.append(
+                row_specs.append(
                     dict(
                         tile_id=tile_id,
                         channel_index=int(c),
@@ -232,7 +232,7 @@ def build_proxy(
                         col=int(col),
                     )
                 )
-            channel_spec.append(col_specs)
+            channel_spec.append(row_specs)
         tile_specs[channel] = channel_spec
 
     pyramid_dict = _get_pyramid_structure(source_zarr_path / ch0_df.loc[0, "tile_omezarr"])
@@ -243,7 +243,7 @@ def build_proxy(
 
     tile_array = zarr.open_array(source_zarr_path / ch0_df.loc[0, "tile_omezarr"] / "0", mode="r")
     dtype = str(tile_array.dtype)
-    final_y_pixels = int(ch0_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0]) 
+    final_y_pixels = int(ch0_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0])
     final_x_pixels = int(ch0_df.groupby("x_pos")["x_n_pixels"].unique().sum()[0])
     shape = (len(channels), int(z_planes), final_y_pixels, final_x_pixels)
 
@@ -300,25 +300,25 @@ def prepare_mesospim_omezarr(
 
     Parameters:
         zarr_dir: Path to the OME-Zarr directory.
-        pattern: Common pattern to identify which OME-Zarr in the dataset directory 
+        pattern: Common pattern to identify which OME-Zarr in the dataset directory
             are to be converted in case of several OME-Zarr present. Default: "".
         zarr_name: Name of the OME-Zarr to create/open. If not provided,
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
             overwriting or not of the image if it exists. Default: None.
-        image_name: Name of the `fake` new image to be created. 
+        image_name: Name of the `fake` new image to be created.
             Default: 'raw_image'.
-        channel_color_file: Path to a JSON file or keyword identifying the JSON 
-            file among provided defaults containing the channel colors information. 
+        channel_color_file: Path to a JSON file or keyword identifying the JSON
+            file among provided defaults containing the channel colors information.
             Default: "default".
-        num_levels: Number of pyramid levels (including the full resolution level, 
-            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is 
+        num_levels: Number of pyramid levels (including the full resolution level,
+            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is
             recommended to have at least 6 levels. If not provided, the code will use
             the existing pyramid depth of the OME-Zarr if it is present, otherwise
             it will estimate the optimal depth based on the size of the image. Default: None.
             the optimal pyramid depth based on the size of the image. Default: None.
         chunksize: Chunk size to use for the OME-Zarr image. Smaller chunksizes improve
-            visualisation smoothness but impairs processing efficiency. 
+            visualisation smoothness but impairs processing efficiency.
             Default: (64, 1024, 1024).
         overwrite: Whether to overwrite OME-Zarr image if it already exists. It will
             not overwrite the OME-Zarr folder if it already exists. Default: False.
@@ -374,7 +374,7 @@ def prepare_mesospim_omezarr(
     source_file_name = root_omezarr.name
     scale = (float(meta_df.loc[0, "z_scale"]), float(meta_df.loc[0, "y_scale"]), float(meta_df.loc[0, "x_scale"]))
     nb_channels = len(meta_df["channel"].unique())
-    final_y_pixels = int(meta_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0]) 
+    final_y_pixels = int(meta_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0])
     final_x_pixels = int(meta_df.groupby("x_pos")["x_n_pixels"].unique().sum()[0])
     shape = (nb_channels, int(meta_df.loc[0, "z_n_pixels"]), final_y_pixels, final_x_pixels)
 
@@ -404,8 +404,8 @@ def prepare_mesospim_omezarr(
         meta_df=meta_df,
         pyramid_dict=pyramid_dict,
         contrast_limits=None,
-        input_param=dict(pattern=pattern, 
-                         source_file=source_file_name, 
+        input_param=dict(pattern=pattern,
+                         source_file=source_file_name,
                          channel_color_settings=channel_color_file,
                          num_levels=num_levels,
                          chunksize=default_chunksize),
@@ -420,7 +420,7 @@ def prepare_mesospim_omezarr(
         source_zarr_path=root_omezarr,
         chunksize=default_chunksize,
     )
-    
+
 
 if __name__ == "__main__":
 

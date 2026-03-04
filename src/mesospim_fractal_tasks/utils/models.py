@@ -45,10 +45,10 @@ class DimTuple(BaseModel):
             if value is not None:
                 d[key] = value
         return d
-    
+
     def __getitem__(self, key: str) -> Optional[int]:
         return getattr(self, key)
-    
+
     def __setitem__(self, key: str, value: Optional[int]) -> None:
         setattr(self, key, value)
 
@@ -70,14 +70,14 @@ class IlluminationModel(BaseModel):
     baseline: Optional[float] = 0
 
     def save_models(
-        self, 
+        self,
         folder: str
     ) -> None:
         """
         Save illumination correction profiles to a folder as npz files.
 
         Args:
-            folder (str): Folder name where the illumination 
+            folder (str): Folder name where the illumination
                 correction profiles will be saved.
         """
         if self.flatfield is None:
@@ -110,15 +110,15 @@ class BaSiCPyModelParams(BaseModel):
         autosegment: When set to `True`, automatically segment the image before fitting.
             A threshold method is used and only the brighter pixels of the image
             are taken.
-        autosegment_margin: Only meaningful when autosegment=True. It sets the margin of 
-            the segmentation mask to the thresholded region. 
+        autosegment_margin: Only meaningful when autosegment=True. It sets the margin of
+            the segmentation mask to the thresholded region.
         smoothness_flatfield: Increase to obtain a smoother flatfield image.
         smoothness_darkfield: Increase to obtain a smoother darkfield image.
         get_darkfield: When True, will estimate the darkfield shading component.
         epsilon: Weight regularization term.
-        max_workers: Maximum number of threads used for processing. Increase for 
+        max_workers: Maximum number of threads used for processing. Increase for
             faster processing.
-        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy. If 
+        working_size: Maximal size in pixels of the XY plane analysed by BaSiCPy. If
             not set, there is no resizing of the image performed by BaSiCPy.
     """
     model_config = ConfigDict(
@@ -162,17 +162,17 @@ class ProxyArray:
 
     @classmethod
     def open(
-        cls, 
-        proxy_zarr_path: Path, 
+        cls,
+        proxy_zarr_path: Path,
         requested_level: int | str = 0,
     ) -> "ProxyArray":
-        
+
         proxy_manifest_path = Path(proxy_zarr_path / "proxy_manifest.json")
         manifest = json.load(open(proxy_manifest_path, "r"))
         if manifest.get("manifest", {}).get("type") != "mesospim_proxy_v1":
             raise ValueError("Not a mesospim proxy OME-Zarr")
         manifest = manifest["manifest"]
-        
+
         source_zarr_path = Path(manifest["source_omezarr"])
         channels = manifest["channels"]
         nb_channels = len(channels)
@@ -195,7 +195,7 @@ class ProxyArray:
                         f" {len(pyramid_dict)-1}.")
         else:
             level_to_build = requested_level
-        
+
         # Create proxy dask array
         tiles = manifest["tiles"]
         dasks_per_channel = []
@@ -239,10 +239,9 @@ class ProxyArray:
             requested_level=requested_level,
             requested_chunksize=chunksize,
         )
-    
+
     def get_dask(self) -> da.Array:
         return self._dask
 
     def __getitem__(self, key) -> da.Array:
         return self._dask[key]
-    

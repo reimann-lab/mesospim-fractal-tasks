@@ -16,13 +16,12 @@ from typing import Any, Optional
 import dask.array as da
 import numpy as np
 import zarr
-from zarr.storage import DirectoryStore
 from pydantic import validate_call
 from dask.distributed import Client
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
 
-from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.utils.models import DimTuple, Channel
 from mesospim_fractal_tasks.utils.zarr_utils import (
     _estimate_pyramid_depth, _build_single_level, _update_omero_channels)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
@@ -206,8 +205,6 @@ def rechunk_omezarr(
         if num_levels < old_num_levels:
             for level in range(num_levels, old_num_levels):
                 shutil.rmtree(str(zarr_path / str(level)))
-    
-    print(old_num_levels, num_levels)
 
     for level in range(min(num_levels, old_num_levels)):
         if not _check_level_complete(zarr_path, level) and level == 0: 
@@ -220,8 +217,6 @@ def rechunk_omezarr(
                         f"rebuilding level using level {level - 1} instead.")
             old_num_levels = level
             break
-        print(new_chunksize)
-        print(level)
         _rechunk_level(zarr_path, level, new_chunksize)
     
     if num_levels > old_num_levels:
@@ -327,31 +322,25 @@ def modify_omezarr_structure(
     new_image_name: Optional[str] = None,
     chunksize: Optional[DimTuple] = None,
     num_levels: Optional[int] = None,
-    channel_labels: Optional[dict[str, str]] = None,
-    channel_colors: Optional[dict[str, str]] = None,
-    channel_contrast_limits: Optional[dict[str, dict[str, float]]] = None,
+    channel_info: Optional[list[Channel]] = None,
 ) -> None:
     """
     Modify the structure of an existing OME-Zarr image.
 
     Parameters:
         zarr_url: Path of the image zarr group (e.g. ``some/path/plate.zarr/B/03/0``).
-        new_image_name: If provided, update the ``name`` field in the ``multiscales``
-            metadata.
-        chunksize: New chunk shape as ``(c, z, y, x)``.  When provided without
-            ``num_levels`` only rechunking is performed.  When combined with
-            ``num_levels`` the pyramid is rebuilt with the new chunk size.
+            new_image_name: If provided, changes the name of the OME-Zarr image. 
+            Default: None.
+        chunksize: New chunk shape as ``(c, z, y, x)``. Default: None.
         num_levels: Desired total number of pyramid levels (including full resolution).
             Triggers pyramid modification (adding, removing, or consolidating
             levels).  Incomplete levels are detected automatically and rebuilt.
         channel_labels: Map channel wavelength to label name, e.g.
             ``{"488": "Lectin", "561": "PGP9.5"}``. Default: None.
-        channel_colors: Map channel name to hex color string, e.g.
-            ``{"Lectin": "FF0000", "PGP9.5": "00FF00"}``. You can find hex color code on website:
-              Default: None.
-        channel_contrast_limits: Map of channel name to beginning and end of contrast limits
-            used by visualisation tools: e.g. ``{"Lectin": {"start": 0, "end": 1000}}``.
-            Default: None.
+        channel_info: Modify the channels information such as channel name (e.g. `PGP9.5`, 
+            `Lectin`,...), channel color (stored as hex color code: e.g. `FF0000`. 
+            You can find hex color code on the website:
+            https://www.color-hex.com/color-wheel/ ), or contrast limits. Default: None.
 
     Returns
         None

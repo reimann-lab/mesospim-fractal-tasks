@@ -1,20 +1,17 @@
 {
-    "488": {
-        "label": "PGP9.5",
-        "color": "00C853",
-        "dye_wavelength": "NaN",
-        "laser_wavelength": "488"
-    },
-    "561": {
-        "label": "Lectin",
-        "color": "C47C3E",
-        "dye_wavelength": "NaN",
-        "laser_wavelength": "561"
-    },
-    "640": {
-        "label": "MBP",
-        "color": "4FC3F7",
-        "dye_wavelength": "NaN",
-        "laser_wavelength": "640"
-    }
+  "488": {
+    "label": "PGP9.5",
+    "color": "00C853",
+    "laser_wavelength": "488"
+  },
+  "561": {
+    "label": "Lectin",
+    "color": "C47C3E",
+    "laser_wavelength": "561"
+  },
+  "640": {
+    "label": "MBP",
+    "color": "4FC3F7",
+    "laser_wavelength": "640"
+  }
 }

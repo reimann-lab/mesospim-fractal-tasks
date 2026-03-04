@@ -17,14 +17,14 @@ class Channel(BaseModel):
         label: Channel label.
         laser_wavelength: Laser wavelength in nm.
         color: Channel color in hex format.
+        start_contrast: Start contrast of the channel.
+        end_contrast: End contrast of the channel.
     """
-    label: str
-    laser_wavelength: int
-    color: str
-    max_intensity: Optional[float] = None
+    label: str = "channel_name"
+    laser_wavelength: int = 488
+    color: Optional[str] = None
     start_contrast: Optional[float] = None
     end_contrast: Optional[float] = None
-    min_intensity: Optional[float] = None
 
 class DimTuple(BaseModel):
     """
@@ -190,7 +190,7 @@ class ProxyArray:
         if int(requested_level) > (len(pyramid_dict)-1):
             level_to_build = requested_level
             requested_level = len(pyramid_dict)-1
-            logger.info(f"Requested pyramid level {level_to_build} not available."
+            logger.info(f"Requested pyramid level {level_to_build} not available. "
                         f"Building pyramid level {level_to_build} using smallest available level"
                         f" {len(pyramid_dict)-1}.")
         else:

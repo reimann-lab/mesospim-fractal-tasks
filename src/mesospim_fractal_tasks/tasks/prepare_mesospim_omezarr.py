@@ -301,15 +301,15 @@ def prepare_mesospim_omezarr(
     Parameters:
         zarr_dir: Path to the OME-Zarr directory.
         pattern: Common pattern to identify which OME-Zarr in the dataset directory
-            are to be converted in case of several OME-Zarr present. Default: "".
+            are to be prepared in case of several OME-Zarr present. Default: "".
         zarr_name: Name of the OME-Zarr to create/open. If not provided,
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
             overwriting or not of the image if it exists. Default: None.
         image_name: Name of the `fake` new image to be created.
             Default: 'raw_image'.
-        channel_color_file: Path to a JSON file or keyword identifying the JSON
-            file among provided defaults containing the channel colors information.
+        channel_color_settings: Keyword identifying the channel color settings
+            among all saved settings.
             Default: "default".
         num_levels: Number of pyramid levels (including the full resolution level,
             so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is

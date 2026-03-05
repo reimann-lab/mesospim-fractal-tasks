@@ -288,8 +288,7 @@ def prepare_mesospim_omezarr(
     zarr_dir: str | Path,
     pattern: str = "",
     zarr_name: Optional[str] = None,
-    image_name: Optional[str] = None,
-    channel_color_file: str = "default",
+    channel_color_settings: str = "default",
     num_levels: Optional[int] = None,
     chunksize: DimTuple = DimTuple(z=64, y=1024, x=1024),
     overwrite: bool = False
@@ -306,11 +305,8 @@ def prepare_mesospim_omezarr(
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
             overwriting or not of the image if it exists. Default: None.
-        image_name: Name of the `fake` new image to be created.
-            Default: 'raw_image'.
         channel_color_settings: Keyword identifying the channel color settings
-            among all saved settings.
-            Default: "default".
+            among all saved settings. Default: "default".
         num_levels: Number of pyramid levels (including the full resolution level,
             so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is
             recommended to have at least 6 levels. If not provided, the code will use
@@ -339,8 +335,7 @@ def prepare_mesospim_omezarr(
         zarr_name = root_omezarr.name.split("_Mag")[0]
     fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
     fake_root = zarr.open_group(fake_zarr_path, mode="a")
-    if image_name is None:
-        image_name = "raw_image"
+    image_name = "fake_raw_image"
     fake_image_group = fake_root.create_group(image_name, overwrite=overwrite)
 
     # Discover tile stores and build metadata df
@@ -406,10 +401,10 @@ def prepare_mesospim_omezarr(
         contrast_limits=None,
         input_param=dict(pattern=pattern,
                          source_file=source_file_name,
-                         channel_color_settings=channel_color_file,
+                         channel_color_settings=channel_color_settings,
                          num_levels=num_levels,
                          chunksize=default_chunksize),
-        user_channels_path=channel_color_file,
+        user_channels_path=channel_color_settings,
         is_proxy=True
     )
 

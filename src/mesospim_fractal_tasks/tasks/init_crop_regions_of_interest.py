@@ -145,7 +145,7 @@ def init_crop_regions_of_interest(
                     roi_coords=roi_row.to_dict(),
                     roi_path=roi_path,
                     num_levels=num_levels,
-                    chunksize=chunksize,
+                    chunksize=chunk_size,
                     crop_or_roi=crop_or_roi,
                     erase_source_image=erase_source_image,
                     is_proxy=is_proxy,

@@ -305,7 +305,7 @@ def build_proxy(
 @validate_call
 def prepare_mesospim_omezarr(
     *,
-    zarr_dir: str | Path,
+    zarr_dir: str,
     pattern: str = "",
     zarr_name: Optional[str] = None,
     channel_color_settings: str = "default",

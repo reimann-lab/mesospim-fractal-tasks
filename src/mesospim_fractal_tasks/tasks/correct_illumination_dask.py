@@ -4,12 +4,14 @@ os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
+os.environ["NUMBA_NUM_THREADS"] = "1"
 
 import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
 import shutil
-from typing import Any, Sequence
+from typing import Any
 from pydantic import validate_call
 import numpy as np
 import dask.array as da

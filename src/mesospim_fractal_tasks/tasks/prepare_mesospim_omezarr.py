@@ -18,8 +18,10 @@ from mesospim_fractal_tasks.utils.models import DimTuple
 logger = logging.getLogger(__name__)
 
 
-def remove_translation_field(
-    zarr_path: Path
+def update_translation_field(
+    zarr_path: Path,
+    y_translation: float,
+    x_translation: float,
 ) -> None:
     """
     Remove the translation field from the metadata.
@@ -31,7 +33,9 @@ def remove_translation_field(
     attrs = zarr_group.attrs.asdict()
     datasets = attrs["multiscales"][0]["datasets"]
     for dataset in datasets:
-        dataset["coordinateTransformations"] = [t for t in dataset["coordinateTransformations"] if t["type"] != "translation"]
+        for t in dataset["coordinateTransformations"]:
+            if t["type"] == "translation":
+                t["translation"] = [0, y_translation, x_translation]
     attrs["multiscales"][0]["datasets"] = datasets
     zarr_group.attrs.put(attrs)
     logger.info("Removed translation field from metadata.")
@@ -112,8 +116,6 @@ def find_per_tile_omezarr(
             raise ValueError("Channel in filename and laser wavelength referenced in metadata do not match.")
         metadata_dict["tile_omezarr"] = tile_omezarr_name
         rows.append(metadata_dict)
-        tile_omezarr_path = Path(root_zarr, tile_omezarr_name)
-        remove_translation_field(tile_omezarr_path)
 
     if len(rows) == 0:
         raise ValueError(f"No metadata txt tile found in the Zarr directory {zarr_dir}.")
@@ -161,11 +163,13 @@ def find_per_tile_omezarr(
 
 def build_fov_roi_table(
     meta_df: pd.DataFrame,
+    root_omezarr: Path
 ) -> pd.DataFrame:
     """
     Build the FOV ROI table to ensure compatibility with downstream tasks.
     """
     # Open one representative tile (channel 0) to read shape + pixel sizes (if available).
+    channels = meta_df["channel"].unique()
     ch0_df = meta_df[meta_df["channel"] == meta_df["channel"].min()].copy()
     ch0_df = ch0_df.sort_values("tile_id")
     ch0_df = ch0_df.reset_index(drop=True)
@@ -200,6 +204,15 @@ def build_fov_roi_table(
         roi_df.loc[i, "pixel_size_x"] = x_scale
         roi_df.loc[i, "pixel_size_y"] = y_scale
         roi_df.loc[i, "pixel_size_z"] = z_scale
+
+        # Update translation field for all channels
+        for channel in channels:
+            tile_path = root_omezarr / meta_df["channel" == channel].iloc[i]["tile_omezarr"]
+            update_translation_field(
+                tile_path, 
+                y_translation = roi_df.loc[i, "y_micrometer"], 
+                x_translation = roi_df.loc[i, "x_micrometer"])
+    
         if i != (len(ch0_df)-1):
             if ch0_df.iloc[i]["y_pos"] != ch0_df.iloc[i+1]["y_pos"]:
                 y_counter += y_pixels

@@ -120,7 +120,12 @@ def init_crop_regions_of_interest(
                              "crop_or_roi is set to 'crop'.")
                 raise ValueError
             logger.info(f"Task set to produce a crop from original image (e.g. to reduce size).")
-            roi_id = zarr_path.name + "_cropped"
+            
+            if zarr_path.name == "fake_raw_image":
+                roi_id = "raw_image_cropped"
+            else:
+                roi_id = zarr_path.name + "_cropped"
+                
             if not overwrite and roi_id in current_images:
                 logger.error(f"Crop {roi_id} already exists in {zarr_path.parent.name} and "
                              "overwrite set to `False`. Try setting overwrite to `True`.")

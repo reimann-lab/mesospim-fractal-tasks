@@ -231,8 +231,13 @@ def stitch_with_multiview_stitcher(
 
     logger.info("Finished registration.")
 
+    if zarr_path.name == "fake_raw_image":
+        zarr_name = "raw_image_fused"
+    else:
+        zarr_name = zarr_path.name + "_fused"
+
     # Preparing for fusion
-    output_zarr_path = Path(zarr_path.parent, zarr_path.name + "_fused")
+    output_zarr_path = Path(zarr_path.parent, zarr_name)
     logger.info(f"Saving fused image to {output_zarr_path.name}") 
 
     fusion_chunks = list(original_chunksize[-3:])

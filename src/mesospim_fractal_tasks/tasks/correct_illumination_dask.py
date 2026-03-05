@@ -166,6 +166,7 @@ def compute_global_normalisation(
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
     if is_proxy:
         image_arr = ProxyArray.open(zarr_path, requested_level=(num_levels-1))
+        image_arr = image_arr.get_dask()
     else:
         image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
 
@@ -259,7 +260,11 @@ def correct_FOV(
     gain_factors: dict[str, float],
     z_profile: da.Array,
 ) -> da.Array:
-    gain = gain_factors[f"ROI_{i_FOV}"]
+    gain = da.from_array(
+        np.full(
+            shape=FOV_dask.shape, 
+            fill_value=gain_factors[f"ROI_{i_FOV}"]), 
+        chunks=FOV_dask.chunksize)
     return da.clip(FOV_dask * gain * z_profile, 
                     0, 65535).astype(np.uint16)
 
@@ -289,7 +294,10 @@ def correct_illumination(
 
     # Define new zarr path
     zarr_path = Path(zarr_url)
-    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
+    if zarr_path.name == "fake_raw_image":
+        new_zarr_path = Path(zarr_path.parent, "raw_image_illum_corr")
+    else:
+        new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
     logger.info(f"Start task: `Illumination Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
     
@@ -343,7 +351,7 @@ def correct_illumination(
     cluster = None
     client = None
     try:
-        cluster = _set_dask_cluster()
+        cluster = _set_dask_cluster(n_workers=len(channel_dict.keys()))
         client = Client(cluster)
         client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
         futures = []

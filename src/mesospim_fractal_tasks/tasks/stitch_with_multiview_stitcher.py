@@ -135,7 +135,7 @@ def stitch_with_multiview_stitcher(
     # Detect if it is a proxy OME-Zarr
     is_proxy = False
     fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
-    if "prepare_mesospim_omezarr" in fractal_tasks:
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
         is_proxy = True
 
     # Load FOVs for registration as spatial image

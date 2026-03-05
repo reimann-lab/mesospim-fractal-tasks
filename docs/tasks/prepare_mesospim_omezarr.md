@@ -1,6 +1,6 @@
 # Prepare mesoSPIM OME-Zarr
 
-This task prepares a new OME-Zarr that will be used for the downstream analysis. To insure compatibility with the analysis pipeline and the OME-Zarrs output by mesoSPIM, it will create a tiny proxy raw_image in this new OME-Zarr. This raw_image is a fake OME-Zarr image that contains the same metadata as the original OME-Zarr and additional information to enable the analysis pipeline to find and correctly assemble the separate tiles output by the mesoSPIM. Once this task is completed, the analysis pipeline can be run on the proxy raw_image normally.  
+This task prepares a new OME-Zarr that will be used for the downstream analysis. To insure compatibility with the analysis pipeline and the OME-Zarrs output by mesoSPIM, it will create a tiny proxy raw image in this new OME-Zarr. This raw image is a fake OME-Zarr image that contains the same metadata as the original OME-Zarr and additional information to enable the analysis pipeline to find and correctly assemble the separate tiles output by the mesoSPIM. Once this task is completed, the analysis pipeline can be run on the proxy raw image normally.  
 The task can be used in two ways:
 
 1. **On the Fractal platform** – as part of a workflow.
@@ -15,7 +15,7 @@ The task performs the following steps:
 * Detects the main mesoSPIM OME-Zarr in `zarr_dir` matching `pattern` that contains all the OME-Zarr tiles of the multitile acquisition.
 * Loads mesoSPIM metadata
 * Assembles channels and tiles
-* Writes a tiny proxy fake_raw_image OME-Zarr mirroring the separate tiles as one unique image.
+* Writes a tiny proxy fake raw image OME-Zarr mirroring the separate tiles as one unique image.
 * Assigns channel names and colors based on user-defined JSON file
 
 ---

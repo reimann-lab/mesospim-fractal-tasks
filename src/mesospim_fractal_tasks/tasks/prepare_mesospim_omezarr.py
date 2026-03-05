@@ -18,6 +18,24 @@ from mesospim_fractal_tasks.utils.models import DimTuple
 logger = logging.getLogger(__name__)
 
 
+def remove_translation_field(
+    zarr_path: Path
+) -> None:
+    """
+    Remove the translation field from the metadata.
+
+    Parameters:
+        zarr_path (Path): Path to the OME-Zarr image.
+    """
+    zarr_group = zarr.open_group(zarr_path, mode="r+")
+    attrs = zarr_group.attrs.asdict()
+    datasets = attrs["multiscales"][0]["datasets"]
+    for dataset in datasets:
+        dataset["coordinateTransformations"] = [t for t in dataset["coordinateTransformations"] if t["type"] != "translation"]
+    attrs["multiscales"][0]["datasets"] = datasets
+    zarr_group.attrs.put(attrs)
+    logger.info("Removed translation field from metadata.")
+
 def read_metadata_file(
     metadata_path: Path
 ) -> dict[str, Any]:
@@ -94,6 +112,8 @@ def find_per_tile_omezarr(
             raise ValueError("Channel in filename and laser wavelength referenced in metadata do not match.")
         metadata_dict["tile_omezarr"] = tile_omezarr_name
         rows.append(metadata_dict)
+        tile_omezarr_path = Path(root_zarr, tile_omezarr_name)
+        remove_translation_field(tile_omezarr_path)
 
     if len(rows) == 0:
         raise ValueError(f"No metadata txt tile found in the Zarr directory {zarr_dir}.")

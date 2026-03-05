@@ -36,13 +36,16 @@ from mesospim_fractal_tasks.utils.models import (
     BaSiCPyModelParams, IlluminationModel, ProxyArray)
 from mesospim_fractal_tasks.utils.basicpy_nojax import BaSiC
 from mesospim_fractal_tasks.utils.zarr_utils import (
-    _determine_optimal_contrast, _update_omero_channels, 
-    create_zarr_pyramid, _get_pyramid_structure, build_pyramid)
+    _determine_optimal_contrast, 
+    _update_omero_channels, 
+    create_zarr_pyramid,
+    _get_pyramid_structure, 
+    build_pyramid,
+    convert_ROI_table_to_indices)
 from mesospim_fractal_tasks.utils.parallelisation import (
     _set_dask_cluster, correct_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
 
-from fractal_tasks_core.roi import convert_ROI_table_to_indices
 from fractal_tasks_core.channels import get_omero_channel_list
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
@@ -488,7 +491,7 @@ def correct_flatfield(
     # Lazily load highest-res level from original zarr array
     is_proxy = False
     fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
-    if "prepare_mesospim_omezarr" in fractal_tasks:
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
         is_proxy = True
     image_arr = da.from_zarr(Path(zarr_path, "0"))
     z_size = image_arr.shape[1]
@@ -510,13 +513,11 @@ def correct_flatfield(
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
     indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=0,
-        coarsening_xy=2,
+        scale_zyx=full_res_pxl_sizes_zyx,
         cols_xyz_pos= [
         "x_micrometer",
         "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
     FOV_shape = (indices[0][-3], indices[0][-1])
     
@@ -631,7 +632,7 @@ def correct_flatfield(
                     "illum_profiles": illum_prof_f,
                 },
                 pure=False,
-                retries=1
+                retries=0
             )
             futures.append(fut)
         client.gather(futures)
@@ -645,7 +646,7 @@ def correct_flatfield(
                 channel_index=channel_idx,
                 channel_name=channel_name,
                 pure=False,
-                retries=1
+                retries=0
             )
             futures.append(fut)
         client.gather(futures)

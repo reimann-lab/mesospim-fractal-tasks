@@ -18,7 +18,7 @@ The OME-Zarr image is typically stored with a pyramid of resolution levels. The 
 
 ### Max Workers
 
-The task can be run in parallel over all the chunks of the image. This parameter allows you to set the maximum number of workers to use for the registration. It cannot be higher than the number of CPUs of your machine. Increasing this number can also lead to memory overflow. There is a trade-off between the number of workers and the memory usage.
+The task can be run in parallel over all the chunks of the image. This parameter allows you to set the maximum number of workers to use for the registration. It cannot be higher than the number of cores of your machine. Increasing this number can also lead to memory overflow. There is a trade-off between the number of workers and the memory usage.
 
 ### Fusion Chunksize
 

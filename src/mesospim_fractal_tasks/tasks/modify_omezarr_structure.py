@@ -1,12 +1,14 @@
-"""
-Task: Modify OME-Zarr Structure
+import os
 
-Allows users to modify the structure of an existing OME-Zarr image:
-- Rename the image in the metadata
-- Rechunk all pyramid levels
-- Add / remove / consolidate pyramid levels
-- Update channel colors and contrast limits
-"""
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
+os.environ["NUMBA_NUM_THREADS"] = "1"
+
+import numcodecs
+numcodecs.blosc.set_nthreads(1)
 
 import logging
 import shutil

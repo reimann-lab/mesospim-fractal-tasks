@@ -48,6 +48,7 @@ nav:
       - Illumination Correction: tasks/correct_illumination.md
       - Stitching: tasks/stitch_with_multiview_stitcher.md
       - ROI Cropping: tasks/crop_regions_of_interest.md
+      - Modify OME-Zarr Structure : tasks/modify_omezarr_structure.md
   - API: api.md
 
   #- Contributing: contributing.md

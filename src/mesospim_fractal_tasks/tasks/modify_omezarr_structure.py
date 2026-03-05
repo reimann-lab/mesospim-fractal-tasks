@@ -128,20 +128,66 @@ def _check_level_complete(
     Returns:
         ``True`` if every expected chunk file exists, ``False`` otherwise.
     """
-    root = zarr.open(str(zarr_path), mode="r")
-    zarr_array = root[str(level)]
+from pathlib import Path
+import zarr
 
-    shape = zarr_array.shape
-    chunks = zarr_array.chunks
-    expected_chunks_per_axis = tuple(int(np.ceil(s / c)) for s, c in zip(shape, chunks))
-    total_expected = int(np.prod(expected_chunks_per_axis))
+def _is_int(s: str) -> bool:
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
+def _check_level_complete(
+    zarr_path: Path, 
+    level: int
+) -> bool:
+    root = zarr.open(str(zarr_path), mode="r")
+    arr = root[str(level)]
 
     level_path = zarr_path / str(level)
-    actual_chunks = [
+    if not level_path.exists():
+        return False
+
+    # Discover chunk files on disk (sparse store => only stored chunks exist)
+    chunk_files = [
         p for p in level_path.rglob("*")
         if p.is_file() and p.name not in (".zarray", ".zattrs", ".zgroup")
     ]
-    return len(actual_chunks) == total_expected
+
+    # Try to parse chunk coordinates from relative path, supporting "/" or "."
+    for p in chunk_files:
+        rel = p.relative_to(level_path)
+
+        # Case A: "0/12/7" (dimension_separator="/")
+        parts = rel.parts
+        if all(_is_int(x) for x in parts):
+            coords = tuple(int(x) for x in parts)
+
+        # Case B: "0.12.7" (dimension_separator=".")
+        elif rel.name.count(".") >= 1 and all(_is_int(x) for x in rel.name.split(".")):
+            coords = tuple(int(x) for x in rel.name.split("."))
+
+        else:
+            # Not a chunk file we recognize (could be extra files); skip it safely
+            continue
+
+        # Convert chunk coords -> array slices and force decoding by reading
+        if len(coords) != arr.ndim:
+            return False
+
+        slices = []
+        for cc, csize, dim in zip(coords, arr.chunks, arr.shape):
+            start = cc * csize
+            stop = min(start + csize, dim)
+            slices.append(slice(start, stop))
+
+        try:
+            _ = arr[tuple(slices)]  # triggers decompression/decoding
+        except Exception:
+            return False
+
+    return True
 
 def _rechunk_level(
     zarr_path: Path,
@@ -401,9 +447,7 @@ def modify_omezarr_structure(
     if channels_list is not None:
         omero_update: dict[str, Any] = {}
         channel_labels = {channel.laser_wavelength: channel.label for channel in channels_list}
-        print(channel_labels)
         for channel in image_attrs["acquisition_metadata"]["channels"]:
-            print(channel)
             current_wavelength = channel["excitation_wavelength"]
             if current_wavelength in channel_labels.keys():
                 channel["label"] = channel_labels[current_wavelength]

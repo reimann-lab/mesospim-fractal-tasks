@@ -260,11 +260,7 @@ def correct_FOV(
     gain_factors: dict[str, float],
     z_profile: da.Array,
 ) -> da.Array:
-    gain = da.from_array(
-        np.full(
-            shape=FOV_dask.shape, 
-            fill_value=gain_factors[f"ROI_{i_FOV}"]), 
-        chunks=FOV_dask.chunksize)
+    gain = gain_factors[f"ROI_{i_FOV}"]
     return da.clip(FOV_dask * gain * z_profile, 
                     0, 65535).astype(np.uint16)
 

@@ -207,7 +207,8 @@ def build_fov_roi_table(
 
         # Update translation field for all channels
         for channel in channels:
-            tile_path = root_omezarr / meta_df["channel" == channel].iloc[i]["tile_omezarr"]
+            ch_df = meta_df[meta_df["channel"] == channel]
+            tile_path = root_omezarr / ch_df.iloc[i]["tile_omezarr"]
             update_translation_field(
                 tile_path, 
                 y_translation = roi_df.loc[i, "y_micrometer"], 
@@ -378,7 +379,7 @@ def prepare_mesospim_omezarr(
     check_n_pixels(meta_df)
 
     # Rebuild ROI df and AnnData tables
-    roi_df = build_fov_roi_table(meta_df)
+    roi_df = build_fov_roi_table(meta_df, root_omezarr)
     fov_roi_table = prepare_FOV_ROI_table(roi_df)
     well_roi_table = prepare_well_ROI_table(roi_df)
 

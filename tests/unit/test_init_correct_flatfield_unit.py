@@ -52,13 +52,13 @@ def test_init_correct_flatfield_max_z_logic(
     out = init_correct_flatfield(
         zarr_urls=["fake.zarr"],
         zarr_dir="unused",
-        z_levels=[5, 30],
+        z_levels=[5, 20],
     )
 
     args = out["parallelization_list"][0]["init_args"]
 
     assert sorted(args["FOV_list"]) == [0,2,6,8]
-    assert args["z_levels"] == [5, 30]
+    assert args["z_levels"] == [5, 20]
 
 def test_save_models_creates_correct_folder_name(
     mocker, 
@@ -73,7 +73,7 @@ def test_save_models_creates_correct_folder_name(
         zarr_urls=[str(fake_zarr)],
         zarr_dir=str(tmp_dataset),
         save_models=True,
-        FOV_list=[0,1,2,3]
+        FOV_list=[1,2,3]
     )
 
     model_path = tmp_dataset / "fake.zarr" / "IllumModels" / "Ch0"

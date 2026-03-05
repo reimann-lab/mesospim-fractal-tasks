@@ -153,10 +153,19 @@ def mock_init_correct_flatfield_env(mocker):
         module + ".load_NgffImageMeta",
         return_value=mocker.Mock(num_levels=1, coarsening_xy=2)
     )
-    fake_array = mocker.Mock(shape=(1,1,10,10), chunks=(1,1,5,5))
-    mocks["open"] = mocker.patch(
-        module + ".zarr.open",
-        return_value={"0": fake_array})
+    mocks["create_pyramid"] = mocker.patch(
+        module + ".create_zarr_pyramid",
+    )
+    mocks["get_pyramid"] = mocker.patch(
+        module + "._get_pyramid_structure"
+    )
+    arr = np.arange(30*10*10).reshape(1, 30, 10, 10)
+    fake_dask = FakeDaskArray(arr)
+    mocks["from_zarr"] = mocker.patch(
+        module + ".da.from_zarr",
+        return_value=fake_dask)
+    mocks["open_group"] = mocker.patch(
+        module + ".zarr.open_group")
     mocks["create"] = mocker.patch(
         module + ".zarr.create")
     return mocks
@@ -263,14 +272,18 @@ def mock_init_correct_illumination_env(
         module + ".group_by_channel",
         return_value={"Ch0": {"zarr_url": "fake.zarr", "index": 0, "n_FOVs": 9}},
     )
-    mocks["load_meta"] = mocker.patch(
-        module + ".load_NgffImageMeta",
-        return_value=mocker.Mock(num_levels=1, coarsening_xy=2)
+    mocks["create_pyramid"] = mocker.patch(
+        module + ".create_zarr_pyramid",
     )
+    mocks["get_pyramid"] = mocker.patch(
+        module + "._get_pyramid_structure"
+    )
+    mocks["open_group"] = mocker.patch(
+        module + ".zarr.open_group")
     fake_array = mocker.Mock(shape=(1,1,10,10), chunks=(1,1,5,5))
     mocks["open"] = mocker.patch(
-        module + ".zarr.open",
-        return_value={"0": fake_array})
+        module + ".zarr.open_array",
+        return_value=fake_array)
     mocks["create"] = mocker.patch(
         module + ".zarr.create")
     
@@ -320,5 +333,34 @@ def mock_correct_illumination_env(
         module + "._copy_tables_from_zarr_url")
     
     mocks = mocks | mock_dask_distributed(mocker, module)
+    
+    return mocks
+
+@pytest.fixture
+def mock_init_crop_regions_env(
+    mocker
+):
+    
+    module = "mesospim_fractal_tasks.tasks.init_crop_regions_of_interest"
+    mocks = {}
+    df = pd.DataFrame({
+        "z_start": [0, 0],
+        "y_start": [0, 0],
+        "x_start": [0, 0],
+        "z_end": [30, 30],
+        "y_end": [10, 5],
+        "x_end": [5, 10],
+    })
+
+    mocks["open_group"] = mocker.patch(
+        module + ".zarr.open_group")
+    fake_array = mocker.Mock(shape=(1,1,10,10), chunks=(1,1,5,5))
+    mocks["open"] = mocker.patch(
+        module + ".zarr.open_array",
+        return_value=fake_array)
+    mocks["read_csv"] = mocker.patch(
+        module + ".pd.read_csv",
+        return_value=df
+    )
     
     return mocks

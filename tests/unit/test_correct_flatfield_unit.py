@@ -26,6 +26,7 @@ def test_collect_fovs_with_fov_list(
         pixel_sizes_yx=(1, 1),
         n_zplanes=n_zplanes,
         z_levels=None,
+        is_proxy=False,
     )
     assert out.shape[0] == n_zplanes
     assert out.shape == (2, 20, 20)
@@ -44,6 +45,7 @@ def test_collect_fovs_with_z_levels(
         pixel_sizes_yx=(1., 1.),
         n_zplanes=n_zplanes,
         z_levels=(2, 3),
+        is_proxy=False,
     )
 
     # Should return exactly n_zplanes slices
@@ -61,7 +63,8 @@ def test_collect_fovs_assert_fov_list_invalid():
             resolution_level=0,
             pixel_sizes_yx=(1.0, 1.0),
             n_zplanes=2,
-            z_levels=None
+            z_levels=None,
+            is_proxy=False,
         )
 
 def test_correct_flatfield_uses_empty_fov_models(
@@ -79,7 +82,9 @@ def test_correct_flatfield_uses_empty_fov_models(
         channel_index=0,
         FOV_list=[0],       # << triggers compute_empty_fov_models
         z_levels=None,
+        resolution_level=0,
         saving_path=None,
+        is_proxy=False,
     )
 
     correct_flatfield(
@@ -106,6 +111,8 @@ def test_correct_flatfield_uses_basicpy_models(
         FOV_list=None,     # << triggers compute_basicpy_models
         z_levels=None,
         saving_path=None,
+        resolution_level=0,
+        is_proxy=False,
     )
 
     correct_flatfield(
@@ -142,6 +149,8 @@ def test_correct_flatfield_loads_npz(
         FOV_list=[0],
         z_levels=None,
         saving_path=None,
+        resolution_level=0,
+        is_proxy=False,
     )
 
     correct_flatfield(
@@ -174,6 +183,8 @@ def test_correct_flatfield_missing_flatfield_raises(
         FOV_list=[0],
         z_levels=None,
         saving_path=None,
+        resolution_level=0,
+        is_proxy=False,
     )
 
     with pytest.raises(ValueError):

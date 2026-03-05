@@ -68,5 +68,13 @@ TASK_LIST = [
         tags=["mesoSPIM", "OME-Zarr", "Pyramid", "Structure", "Channels"],
         category="Image Processing",
         modality="lightsheet"
+    ),
+    ConverterNonParallelTask(
+        name="Prepare mesoSPIM OME-Zarr",
+        executable="tasks/prepare_mesospim_omezarr.py",
+        meta={"cpus_per_task": 8, "mem": 16000},
+        tags=["mesoSPIM", "OME-Zarr", "Converter"],
+        category="Conversion",
+        modality="lightsheet"
     )
 ]

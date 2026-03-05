@@ -44,6 +44,7 @@ nav:
       - Running Tasks Locally: usage/local_run.md
   - Task Reference:
       - MesoSPIM to OME-Zarr Conversion: tasks/mesospim_to_omezarr.md
+      - Prepare mesoSPIM OME-Zarr: tasks/prepare_mesospim_omezarr.md
       - Flatfield Correction: tasks/correct_flatfield.md
       - Illumination Correction: tasks/correct_illumination.md
       - Stitching: tasks/stitch_with_multiview_stitcher.md

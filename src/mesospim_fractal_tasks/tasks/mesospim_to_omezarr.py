@@ -17,7 +17,6 @@ from typing import Optional, Callable, Any
 import json
 from importlib import resources
 import fractal_tasks_core
-from fractal_tasks_core.tasks.io_models import ChunkSizes
 from fractal_tasks_core.ngff.specs import NgffImageMeta
 from fractal_tasks_core.roi import prepare_FOV_ROI_table, prepare_well_ROI_table
 from fractal_tasks_core.tables import write_table
@@ -33,6 +32,7 @@ import h5py
 from mesospim_fractal_tasks.utils.zarr_utils import (
     _determine_optimal_contrast, _estimate_pyramid_depth, build_pyramid)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
+from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
@@ -388,7 +388,7 @@ def convert_raw(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: list[int]
 ) -> None:
     """
     Convert raw files that matches the basename in provided directory to zarr.
@@ -398,7 +398,7 @@ def convert_raw(
         image_group (zarr.Group): Image group to store the image from the tiff files.
         zarr_image_path (str): Filepath to the image group to store the tiff files.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
-        chunk_sizes (ChunkSizes): Chunk sizes for the zarr dataset.
+        chunk_sizes (list[int]): Chunk sizes for the zarr dataset.
 
     Returns:
         None
@@ -421,11 +421,11 @@ def convert_raw(
     logger.info(f"Creating zarr dataset of size {zarr_shape[0]} x "
                 f"{zarr_shape[1]} x {zarr_shape[2]} x "
                 f"{zarr_shape[3]} to store raw files")
-    logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
+    logger.info(f"Chunk size set to: {chunk_sizes}")
     
     image_arr = zarr.create(
         shape=tuple(zarr_shape),
-        chunks=chunk_sizes.get_chunksize(),
+        chunks=(1,) + tuple(chunk_sizes),
         dtype=np.uint16,
         store=zarr.storage.FSStore(Path(image_path, "0")), # type: ignore
         overwrite=True,
@@ -480,7 +480,7 @@ def convert_tiff(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: list[int]
 ) -> None:
     """
     Convert tiff files that matches the basename in provided directory to zarr.
@@ -490,7 +490,7 @@ def convert_tiff(
         image_group (zarr.Group): Image group to store the image from the tiff files.
         image_path (str): Filepath to the image group to store the tiff files.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
-        chunk_sizes (ChunkSizes): Chunk sizes for the zarr dataset.
+        chunk_sizes (list[int]): Chunk sizes for the zarr dataset.
 
     Returns:
         None
@@ -512,14 +512,14 @@ def convert_tiff(
     logger.info(f"Creating zarr dataset of size {len(raw_image_paths)} x \
                 {meta_df.loc[0,'z_n_pixels']} x {meta_df.loc[0, 'y_n_pixels']} x \
                 {meta_df.loc[0, 'x_n_pixels']} to store tiff files")
-    logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
+    logger.info(f"Chunk size set to: {chunk_sizes}")
     
     image_arr = zarr.create(
         shape=(len(raw_image_paths), 
                meta_df.loc[0,"z_n_pixels"], 
                meta_df.loc[0, "y_n_pixels"], 
                meta_df.loc[0, "x_n_pixels"]), # type: ignore
-        chunks=chunk_sizes.get_chunksize(),
+        chunks=(1,) + tuple(chunk_sizes),
         dtype=np.uint16,
         store=zarr.storage.FSStore(Path(image_path, "0")),
         overwrite=True,
@@ -573,7 +573,7 @@ def convert_h5_multitile(
     image_group: zarr.Group,
     image_path: str,
     meta_df: pd.DataFrame,
-    chunk_sizes: ChunkSizes
+    chunk_sizes: list[int]
 ) -> None:
     """
     Convert tiles stored in an h5 file that matches the pattern in provided directory 
@@ -584,7 +584,7 @@ def convert_h5_multitile(
         image_group (zarr.Group): Image group to store the image from the h5 file.
         image_path (str): Filepath to the image group to store the h5 file.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
-        chunk_sizes (ChunkSizes): Chunk sizes for the zarr dataset.
+        chunk_sizes (list[int]): Chunk sizes for the zarr dataset.
 
     Returns:
         None.
@@ -613,10 +613,10 @@ def convert_h5_multitile(
     final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0]
 
-    logger.info(f"Chunk size set to: {chunk_sizes.get_chunksize()}")
+    logger.info(f"Chunk size set to: {chunk_sizes}")
     image_arr = zarr.create(
         shape=(nb_channels, z_pixels, final_y_pixels, final_x_pixels),
-        chunks=chunk_sizes.get_chunksize(),
+        chunks=(1,) + tuple(chunk_sizes),
         dtype=np.uint16,
         store=zarr.storage.FSStore(Path(image_path, "0")),
         overwrite=True,
@@ -645,7 +645,7 @@ def convert_h5_multitile(
                 x_pixels = channel_df.iloc[t]["x_n_pixels"]
 
                 with h5py.File(raw_image_path, "r") as f:
-                    chunks = chunk_sizes.get_chunksize()[-3:]
+                    chunks = tuple(chunk_sizes)
                     z_plane = da.from_array(f[tile_name], chunks=chunks)
                     z_plane = z_plane[None, :, :, :]
                     region = (slice(c, c+1), 
@@ -656,8 +656,8 @@ def convert_h5_multitile(
                 logger.info(f"Converted {tile_name} to zarr") 
                 
                 if c == 0:
-                    x_pos = abs(channel_df.iloc[t]["x_pos"] - channel_df["x_pos"].max())
-                    y_pos = abs(channel_df.iloc[t]["y_pos"] - channel_df["y_pos"].max())
+                    x_pos = abs(channel_df.iloc[t]["x_pos"] - channel_df[0, "x_pos"])
+                    y_pos = abs(channel_df.iloc[t]["y_pos"] - channel_df[0, "y_pos"])
                     roi_df.loc[t, "z_micrometer"] = 0
                     roi_df.loc[t, "y_micrometer"] = y_counter * y_scale 
                     roi_df.loc[t, "x_micrometer"] = x_counter * x_scale 
@@ -854,9 +854,9 @@ def mesospim_to_omezarr(
     zarr_name: Optional[str] = None,
     image_name: Optional[str] = None,
     metadata_file: Optional[str] = None,
-    channel_color_file: str = "default",
+    channel_color_settings: str = "default",
     num_levels: Optional[int] = None,
-    chunksize: tuple[int, int, int] = (64, 1024, 1024),
+    chunksize: DimTuple = DimTuple(z=64, y=1024, x=1024),
     overwrite: bool = False
 ) -> dict[str, Any]:
     """
@@ -879,14 +879,14 @@ def mesospim_to_omezarr(
         metadata_file (Optional[str]): Name of the metadata file. It is expected to be
             in the same folder as the acquisition files. Note: if not provided,
             a _meta.txt will be searched using the provided pattern. Default: None.
-        channel_color_file (str): Path to a JSON file or keyword identifying the JSON 
-            file among provided defaults containing the channel colors information. 
-            Default: "default".
+        channel_color_settings: Keyword identifying the channel color settings
+            among all saved settings. Default: "default".
         num_levels (int): Number of pyramid levels (including the full resolution level, 
             so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is 
             recommended to have at least 6 levels. If not provided, the code will estimate
             the optimal pyramid depth based on the size of the image. Default: None.
-        chunksize (tuple[int, int, int]): Chunk size to use for the OME-Zarr image.
+        chunksize: Chunk size to use for the OME-Zarr image. Smaller chunksizes improve
+            visualisation smoothness but impairs processing efficiency.
             Default: (64, 1024, 1024).
         overwrite (bool): Whether to overwrite OME-Zarr image if it already exists. It will
             not overwrite the OME-Zarr folder if it already exists. Default: False.
@@ -934,16 +934,15 @@ def mesospim_to_omezarr(
     # Convert files based on file extension
     convert_fn = dispatcher(extension)
     meta_df = read_metadata(metadata_path, exclusion_list=[]) # exclusion list for compatibility with old version
-    chunk_sizes = ChunkSizes()
-    chunk_sizes.c = 1
-    chunk_sizes.z = chunksize[0]
-    chunk_sizes.y = chunksize[1]
-    chunk_sizes.x = chunksize[2]
+    default_chunksize = [64, 1024, 1024]
+    for d, dim in enumerate(["z", "y", "x"]):
+        if chunksize[dim] is not None:
+            default_chunksize[d] = chunksize[dim]
 
     with _set_dask_cluster(n_workers=4) as cluster:
         with Client(cluster) as client:
             #client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-            convert_fn(raw_image_paths, image_group, image_path, meta_df, chunk_sizes)
+            convert_fn(raw_image_paths, image_group, image_path, meta_df, default_chunksize)
 
             shape = da.from_zarr(str(image_path / "0")).shape
             scale = meta_df.loc[0, "z_scale"], meta_df.loc[0, "y_scale"], meta_df.loc[0, "x_scale"]
@@ -971,8 +970,8 @@ def mesospim_to_omezarr(
                          extension=extension, 
                          metadata_file=metadata_file,
                          source_file=source_file_name, 
-                         channel_color_settings=channel_color_file),
-        user_channels_path=channel_color_file
+                         channel_color_settings=channel_color_settings),
+        user_channels_path=channel_color_settings
     )
 
     # Update Fractal attributes metadata

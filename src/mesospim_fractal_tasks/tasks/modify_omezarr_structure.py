@@ -23,7 +23,7 @@ from fractal_tasks_core.ngff import load_NgffImageMeta
 
 from mesospim_fractal_tasks.utils.models import DimTuple, Channel
 from mesospim_fractal_tasks.utils.zarr_utils import (
-    _estimate_pyramid_depth, _build_single_level, _update_omero_channels)
+    _estimate_pyramid_depth, _build_single_level)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 
 logger = logging.getLogger(__name__)

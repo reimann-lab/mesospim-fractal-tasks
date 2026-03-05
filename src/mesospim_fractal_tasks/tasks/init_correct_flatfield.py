@@ -103,7 +103,10 @@ def init_correct_flatfield(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
-    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
+    if zarr_path.name == "fake_raw_image":
+        new_zarr_path = Path(zarr_path.parent, "raw_image_flatfield_corr")
+    else:
+        new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     logger.info(f"Start task: `Flatfield Correction (Initialisation)` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
 

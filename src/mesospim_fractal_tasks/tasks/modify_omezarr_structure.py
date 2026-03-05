@@ -52,8 +52,11 @@ def _update_omero_channels(zarr_path: Path, update_dict: dict[str, Any]) -> None
                 if str(c) in value:
                     logger.info(f"Updating window contrast limits for channel {c}: "
                                 f"{channels_attrs[c][key]} → {value[str(c)]}")
-                    channels_attrs[c][key]["start"] = value[str(c)]["start"]
-                    channels_attrs[c][key]["end"] = value[str(c)]["end"]
+                    if "start" in value[str(c)]:
+                        channels_attrs[c][key]["start"] = value[str(c)]["start"]
+                    if "end" in value[str(c)]:
+                        channels_attrs[c][key]["max"] = min(value[str(c)]["end"] * 10, 2**16-1)
+                        channels_attrs[c][key]["end"] = value[str(c)]["end"]
             else:
                 if str(c) in value:
                     logger.info(f"Updating channel {c} '{key}': "
@@ -322,7 +325,7 @@ def modify_omezarr_structure(
     new_image_name: Optional[str] = None,
     chunksize: Optional[DimTuple] = None,
     num_levels: Optional[int] = None,
-    channel_info: Optional[list[Channel]] = None,
+    channels_list: Optional[list[Channel]] = None,
 ) -> None:
     """
     Modify the structure of an existing OME-Zarr image.
@@ -331,13 +334,12 @@ def modify_omezarr_structure(
         zarr_url: Path of the image zarr group (e.g. ``some/path/plate.zarr/B/03/0``).
             new_image_name: If provided, changes the name of the OME-Zarr image. 
             Default: None.
+        new_image_name: If provided, changes the name of the OME-Zarr image.
         chunksize: New chunk shape as ``(c, z, y, x)``. Default: None.
         num_levels: Desired total number of pyramid levels (including full resolution).
             Triggers pyramid modification (adding, removing, or consolidating
             levels).  Incomplete levels are detected automatically and rebuilt.
-        channel_labels: Map channel wavelength to label name, e.g.
-            ``{"488": "Lectin", "561": "PGP9.5"}``. Default: None.
-        channel_info: Modify the channels information such as channel name (e.g. `PGP9.5`, 
+        channels_list: Modify the channels information such as channel name (e.g. `PGP9.5`, 
             `Lectin`,...), channel color (stored as hex color code: e.g. `FF0000`. 
             You can find hex color code on the website:
             https://www.color-hex.com/color-wheel/ ), or contrast limits. Default: None.
@@ -392,36 +394,42 @@ def modify_omezarr_structure(
                 pass
 
     # Channel updates
-    omero_update: dict[str, Any] = {}
     zarr_group = zarr.open_group(str(zarr_path), mode="r+")
     image_attrs = zarr_group.attrs.asdict()
-    if channel_labels is not None:
+    if channels_list is not None:
+        omero_update: dict[str, Any] = {}
+        channel_labels = {channel.laser_wavelength: channel.label for channel in channels_list}
+        print(channel_labels)
         for channel in image_attrs["acquisition_metadata"]["channels"]:
+            print(channel)
             current_wavelength = channel["excitation_wavelength"]
             if current_wavelength in channel_labels.keys():
                 channel["label"] = channel_labels[current_wavelength]
         
         for channel in image_attrs["omero"]["channels"]:
-            current_wavelength = channel["wavelength_id"]
+            current_wavelength = int(channel["wavelength_id"])
             if current_wavelength in channel_labels.keys():
                 channel["label"] = channel_labels[current_wavelength]
         zarr_group.attrs.update(image_attrs)
     
-    # _update_omero_channels expects a list indexed by channel position
-    channel_order = {channel["label"]: str(i) for i, channel in enumerate(image_attrs["omero"]["channels"])}
-    if channel_colors is not None:
-        omero_update["color"] = {}
-        for label in channel_colors.keys():
-            omero_update["color"][channel_order[label]] = channel_colors[label]
+        # _update_omero_channels expects a list indexed by channel position
+        channel_order = {channel["label"]: str(i) for i, channel in enumerate(image_attrs["omero"]["channels"])}
+        for channel in channels_list:
+            omero_update["color"] = {}
+            omero_update["window"] = {}
+            if channel.color is not None:
+                omero_update["color"][channel_order[channel.label]] = channel.color
 
-    if channel_contrast_limits is not None:
-        omero_update["window"] = {}
-        for label in channel_contrast_limits.keys():
-            omero_update["window"][channel_order[label]] = channel_contrast_limits[label]
+            omero_update["window"][channel_order[channel.label]] = {}
+            if channel.start_contrast is not None:
+                omero_update["window"][channel_order[channel.label]]["start"] = channel.start_contrast
+            if channel.end_contrast is not None:
+                omero_update["window"][channel_order[channel.label]]["end"] = channel.end_contrast
 
-    if omero_update:
-        logger.info("Updating OMERO channel metadata.")
-        _update_omero_channels(zarr_path, omero_update)
+
+        if omero_update:
+            logger.info("Updating OMERO channel metadata.")
+            _update_omero_channels(zarr_path, omero_update)
 
         # Rename image and update metadata
     if new_image_name is not None:
@@ -429,4 +437,13 @@ def modify_omezarr_structure(
         shutil.move(str(zarr_path), str(zarr_path.parent / new_image_name))
 
     logger.info("Task `Modify OME-Zarr structure` complete.")
-    return 
+
+
+if __name__ == "__main__":
+
+    from fractal_task_tools.task_wrapper import run_fractal_task
+  
+    run_fractal_task(
+        task_function=modify_omezarr_structure,
+        logger_name=logger.name,
+    )

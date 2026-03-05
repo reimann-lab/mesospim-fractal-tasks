@@ -8,7 +8,7 @@ from pathlib import Path
 import zarr
 from typing import Any, Callable, Optional
 
-from fractal_tasks_core.roi import convert_ROI_table_to_indices
+from mesospim_fractal_tasks.utils.zarr_utils import convert_ROI_table_to_indices
 
 from mesospim_fractal_tasks.utils.models import ProxyArray
 
@@ -67,13 +67,11 @@ def correct_per_channel(
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
     indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=0,
-        coarsening_xy=2,
+        scale_zyx=full_res_pxl_sizes_zyx,
         cols_xyz_pos= [
         "x_micrometer",
         "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
 
     logger.info(f"Starting illumination correction for {channel_name}...")

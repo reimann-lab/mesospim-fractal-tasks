@@ -17,10 +17,13 @@ from typing import Any, Optional
 from fractal_tasks_core.channels import get_omero_channel_list
 from pydantic import validate_call
 import anndata as ad
-import zarr
+import dask.array as da
 from pathlib import Path
+import zarr
 
 from fractal_tasks_core.ngff import load_NgffImageMeta
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    _get_pyramid_structure, create_zarr_pyramid)
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +62,7 @@ def init_correct_flatfield(
     zarr_dir: str,
     FOV_list: Optional[list[int]] = None,
     z_levels: Optional[list[int]] = None,
+    resolution_level: Optional[int] = None,
     save_models: bool = False
 ) -> dict[str, list[dict[str, Any]]]:
     """
@@ -84,6 +88,9 @@ def init_correct_flatfield(
             (expecting empty FOVs) without BaSiCPy.
             If FOV_list is not empty the subvolumes will be extracted from the tiles 
             in FOV_list, otherwise from the four tiles at the corners. Default: None.
+        resolution_level: Resolution level at which to calculate the illumination
+            correction profiles. If None, the lowest resolution level will be used for BaSiCPy
+            and highest resolution level for empty FOVs. Default: None.
         save_models: If `True`, illumination profiles will be saved in the parent folder
             of the currently processed OME-Zarr. Default: False.
 
@@ -96,35 +103,40 @@ def init_correct_flatfield(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
+    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_flatfield_corr")
     logger.info(f"Start task: `Flatfield Correction (Initialisation)` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
 
     logger.info(
         f"Calculating illumination profiles (flatfield/darkfield) based on "
         f"randomly sampled z planes across all ROIs for each channel.")
-
     channels_dict = group_by_channel(zarr_path)
+    
+    # Lazily load highest-res level from original zarr array
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
+        is_proxy = True
+    image_arr = da.from_zarr(Path(zarr_path, "0"))
+    z_size = image_arr.shape[1]
+    ngff_image_meta = load_NgffImageMeta(str(zarr_path))
+    num_levels = ngff_image_meta.num_levels
+    if resolution_level is None:
+        if FOV_list is None and z_levels is None:
+            resolution_level = num_levels-1    # basicpy run
+        else:
+            resolution_level = 0               # empty tiles run
+    if resolution_level not in range(num_levels):
+        raise ValueError(f"Resolution level {resolution_level} not found in "
+                         f"multiscale pyramid. Available levels go from: 0 to {num_levels-1}")
+    pyramid_dict = _get_pyramid_structure(zarr_path)
 
-    image_meta = load_NgffImageMeta(zarr_path)
-    num_level = image_meta.num_levels
-    coarsening_xy = image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
-    raw_array = zarr.open(zarr_path)["0"]
-    for level in range(num_level):
-        shape = (raw_array.shape[0], raw_array.shape[1],
-                 raw_array.shape[2] // 2**level, 
-                 raw_array.shape[3] // 2**level)
-        _ = zarr.create(
-            shape=shape,
-            chunks=raw_array.chunks,
-            store=zarr.storage.FSStore(Path(zarr_path.parent, 
-                                            zarr_path.name + "_flatfield_corr", 
-                                            str(level))),
-            dtype=raw_array.dtype,
-            overwrite=True,
-            dimension_separator="/",
-        )
+    # Create new zarr pyramid
+    create_zarr_pyramid(zarr_path, new_zarr_name=new_zarr_path.name, pyramid_dict=pyramid_dict)
+
+    if FOV_list is not None:
+        assert min(FOV_list) > 0, ("FOV list must start at 1.")
+        FOV_list = [int(i-1) for i in FOV_list]
 
     if FOV_list is None and z_levels is not None:
         FOV_list = []
@@ -144,6 +156,11 @@ def init_correct_flatfield(
             if (ROI_table.iloc[i]["y_micrometer"] == max_y_FOV and 
                 ROI_table.iloc[i]["x_micrometer"] == max_x_FOV):
                 FOV_list.append(i)
+
+    if z_levels is not None:
+        assert len(z_levels) == 2, "z_levels must be a list of two numbers."
+        assert (0 < z_levels[0]) and (0 < z_levels[1]), "z_levels must be non-negative."
+        assert z_levels[0] < z_size and z_levels[1] < z_size, "z_levels must be smaller than the number of z planes."
 
     if save_models:
         if FOV_list is not None or z_levels is not None:
@@ -167,7 +184,9 @@ def init_correct_flatfield(
                     channel_index=channel_dict["index"],
                     saving_path=str(channel_model_folder),
                     FOV_list=FOV_list,
-                    z_levels=z_levels
+                    z_levels=z_levels,
+                    is_proxy=is_proxy,
+                    resolution_level=resolution_level,
                 ),
             )
         )

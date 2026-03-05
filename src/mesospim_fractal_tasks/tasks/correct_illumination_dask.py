@@ -28,7 +28,8 @@ from mesospim_fractal_tasks.utils.zarr_utils import (
     _update_omero_channels,
     create_zarr_pyramid,
     _get_pyramid_structure,
-    build_pyramid)
+    build_pyramid,
+    convert_ROI_table_to_indices)
 from mesospim_fractal_tasks.utils.models import ProxyArray
 from mesospim_fractal_tasks.utils.parallelisation import (
     _set_dask_cluster,
@@ -36,101 +37,14 @@ from mesospim_fractal_tasks.utils.parallelisation import (
 from mesospim_fractal_tasks import __version__, __commit__
 
 from fractal_tasks_core.channels import get_omero_channel_list
-#from fractal_tasks_core.roi import convert_ROI_table_to_indices
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
 logger = logging.getLogger(__name__)
 
 
-def convert_ROI_table_to_indices(
-    ROI: ad.AnnData,
-    scale_zyx: Sequence[float],
-    cols_xyz_pos: Sequence[str] = [
-        "x_micrometer",
-        "y_micrometer",
-        "z_micrometer",
-    ],
-    cols_xyz_len: Sequence[str] = [
-        "len_x_micrometer",
-        "len_y_micrometer",
-        "len_z_micrometer",
-    ],
-) -> list[list[int]]:
-    """
-    Convert a ROI AnnData table into integer array indices.
-
-    Args:
-        ROI: AnnData table with list of ROIs.
-        scale_zyx:
-            Physical-unit pixel ZYX sizes at the desired pyramid level.
-        level: Pyramid level.
-        coarsening_xy: Linear coarsening factor in the YX plane.
-        cols_xyz_pos: Column names for XYZ ROI positions.
-        cols_xyz_len: Column names for XYZ ROI edges.
-
-    Raises:
-        ValueError:
-            If any of the array indices is negative.
-
-    Returns:
-        Nested list of indices. The main list has one item per ROI. Each ROI
-            item is a list of six integers as in `[start_z, end_z, start_y,
-            end_y, start_x, end_x]`. The array-index interval for a given ROI
-            is `start_x:end_x` along X, and so on for Y and Z.
-    """
-    # Handle empty ROI table
-    if len(ROI) == 0:
-        return []
-
-    # Set pyramid-level pixel sizes
-    pxl_size_z, pxl_size_y, pxl_size_x = scale_zyx
-
-    x_pos, y_pos, z_pos = cols_xyz_pos[:]
-    x_len, y_len, z_len = cols_xyz_len[:]
-
-    list_indices = []
-    for ROI_name in ROI.obs_names:
-        # Extract data from anndata table
-        x_micrometer = ROI[ROI_name, x_pos].X[0, 0]
-        y_micrometer = ROI[ROI_name, y_pos].X[0, 0]
-        z_micrometer = ROI[ROI_name, z_pos].X[0, 0]
-        len_x_micrometer = ROI[ROI_name, x_len].X[0, 0]
-        len_y_micrometer = ROI[ROI_name, y_len].X[0, 0]
-        len_z_micrometer = ROI[ROI_name, z_len].X[0, 0]
-
-        # Identify indices along the three dimensions
-        start_x = x_micrometer / pxl_size_x
-        end_x = (x_micrometer + len_x_micrometer) / pxl_size_x
-        start_y = y_micrometer / pxl_size_y
-        end_y = (y_micrometer + len_y_micrometer) / pxl_size_y
-        start_z = z_micrometer / pxl_size_z
-        end_z = (z_micrometer + len_z_micrometer) / pxl_size_z
-        indices = [start_z, end_z, start_y, end_y, start_x, end_x]
-
-        # Round indices to lower integer
-        indices = list(map(round, indices))
-
-        # Fail for negative indices
-        if min(indices) < 0:
-            raise ValueError(
-                f"ROI {ROI_name} converted into negative array indices.\n"
-                f"ZYX position: {z_micrometer}, {y_micrometer}, "
-                f"{x_micrometer}\n"
-                f"ZYX pixel sizes: {pxl_size_z}, {pxl_size_y}, "
-                f"{pxl_size_x}\n"
-                "Hint: As of fractal-tasks-core v0.12, FOV/well ROI "
-                "tables with non-zero origins (e.g. the ones created with "
-                "v0.11) are not supported."
-            )
-
-        # Append ROI indices to to list
-        list_indices.append(indices[:])
-
-    return list_indices
-
 def print_dict(
-    d: dict,
+    d: dict, 
     float_precision: int = 3
 ) -> str:
     lines = []
@@ -143,22 +57,20 @@ def compute_z_correction_profile(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
-    z_correction: bool,
     is_proxy: bool,
 ) -> np.ndarray:
     """
-    Compute model of z-correction factor to correct uneven illumination in Z direction
+    Compute model of z-correction factor to correct uneven illumination in Z direction 
     (z-banding).
-
+    
     Parameters:
         zarr_path (Path): Path to the OME-Zarr image to be processed.
         channel_name (str): Name of the channel to process.
         channel_index (int): Index of the channel to process.
-        z_correction (bool): Whether to apply z correction.
         is_proxy (bool): Whether the image is a proxy image.
 
     Returns:
-        z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the per-z correction
+        z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the per-z correction 
             factors.
     """
     logging.info(f"Computing z-correction profile for channel {channel_name} "
@@ -170,19 +82,15 @@ def compute_z_correction_profile(
     else:
         channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
 
-    if z_correction:
-        z_profile_percentile = []
-        z_profile_percentile= np.median(np.median(
-                channel_arr[:,:,:].compute(), axis=1), axis=1) + 1
-        z_profile_percentile = np.concatenate([np.repeat(z_profile_percentile[0], 60),
-                                        z_profile_percentile,
-                                        np.repeat(z_profile_percentile[-1], 60)])
-        z_percentile_smooth = gaussian_filter1d(z_profile_percentile, sigma=15)
-        correction_factor = z_percentile_smooth[60:-60] / z_profile_percentile[60:-60]
-        return correction_factor[None, :, None, None]
-    else:
-        return np.ones((1, channel_arr.shape[0], 1, 1))
-
+    z_profile_percentile = []
+    z_profile_percentile= np.median(np.median(
+            channel_arr[:,:,:].compute(), axis=1), axis=1) + 1
+    z_profile_percentile = np.concatenate([np.repeat(z_profile_percentile[0], 60),
+                                    z_profile_percentile,
+                                    np.repeat(z_profile_percentile[-1], 60)])
+    z_percentile_smooth = gaussian_filter1d(z_profile_percentile, sigma=15)
+    correction_factor = z_percentile_smooth[60:-60] / z_profile_percentile[60:-60]
+    return correction_factor[None, :, None, None]
 
 def gain_residuals(
     gains: np.ndarray,
@@ -191,13 +99,13 @@ def gain_residuals(
 ) -> np.ndarray:
     """
     Compute the residuals of the gains for each pair of ROIs.
-
+    
     Parameters:
         gains (np.ndarray): Array of gains for each ROI.
-        gain_graph (list[tuple[str, str, float]]): List of tuples containing the
+        gain_graph (list[tuple[str, str, float]]): List of tuples containing the 
             indices of the ROIs and their corresponding gains.
         ROIs_indices (dict[str, int]): Dictionary mapping ROI names to their indices.
-
+    
     Returns:
         np.ndarray: Array of residuals.
     """
@@ -211,10 +119,10 @@ def gain_residuals(
 
 @delayed
 def _gain_from_stats(
-    mean1: float,
-    mean2: float,
-    cnt1: int,
-    cnt2: int,
+    mean1: float, 
+    mean2: float, 
+    cnt1: int, 
+    cnt2: int, 
     thresh: float
 ) -> float:
     """
@@ -222,7 +130,7 @@ def _gain_from_stats(
     """
     if (cnt1 < thresh) or (cnt2 < thresh):
         return 1.0
-
+    
     # Protect against division by 0
     if mean1 <= 0:
         return 1.0
@@ -232,21 +140,18 @@ def compute_global_normalisation(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
-    z_profile: da.Array,
     is_proxy: bool,
 ) -> dict[str, float]:
     """
-    Compute the global normalisation factors for each ROI to correct for uneven
+    Compute the global normalisation factors for each ROI to correct for uneven 
     illumination across tiles.
-
+    
     Parameters:
         zarr_path (Path): Path to the OME-Zarr image to be processed.
         channel_name (str): Name of the channel to process.
         channel_index (int): Index of the channel to process.
-        z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the
-            per-z correction factors.
         is_proxy (bool): Whether the image is a proxy image.
-
+    
     Returns:
         dict[str, float]: Dictionary mapping ROI names to their corresponding gains.
     """
@@ -262,14 +167,11 @@ def compute_global_normalisation(
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
     if is_proxy:
         image_arr = ProxyArray.open(zarr_path, requested_level=(num_levels-1))
-        image_arr = image_arr.get_dask()
     else:
         image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
-    print(FOV_ROI_table.to_df()[["x_micrometer", "x_micrometer_original"]])
-
     scale = ngff_image_meta.get_pixel_sizes_zyx(level=num_levels-1)
     original_indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
@@ -301,16 +203,16 @@ def compute_global_normalisation(
             s_z1, e_z1, s_y1, e_y1, s_x1, e_x1 = original_indices[i_ROI1][:]
             s_z2, e_z2, s_y2, e_y2, s_x2, e_x2 = original_indices[i_ROI2][:]
             overlap = np.array([e_y1 - s_y2, e_x1 - s_x2])
-            if ((overlap[0] > 0 and overlap[1] > 0) and
+            if ((overlap[0] > 0 and overlap[1] > 0) and 
                 overlap[0] <= (e_y1-s_y1) and overlap[1] <= (e_x1-s_x1)):
                 _, _, s_y1, e_y1, s_x1, e_x1 = zarr_indices[i_ROI1][:]
                 _, _, s_y2, e_y2, s_x2, e_x2 = zarr_indices[i_ROI2][:]
-                overlap_tile1 = image_arr[i_c, :,
-                                          (e_y1 - overlap[0]):e_y1,
-                                          (e_x1 - overlap[1]):e_x1] * z_profile
-                overlap_tile2 = image_arr[i_c, :,
-                                          s_y2:(s_y2 + overlap[0]),
-                                          s_x2:(s_x2 + overlap[1])] * z_profile
+                overlap_tile1 = image_arr[i_c, :, 
+                                          e_y1 - overlap[0]:e_y1, 
+                                          e_x1 - overlap[1]:e_x1]
+                overlap_tile2 = image_arr[i_c, :, 
+                                          s_y2:s_y2 + overlap[0], 
+                                          s_x2:s_x2 + overlap[1]]
                 mask1 = overlap_tile1 > 0
                 mask2 = overlap_tile2 > 0
                 sum1 = da.sum(da.where(mask1, overlap_tile1, 0))
@@ -321,7 +223,7 @@ def compute_global_normalisation(
                 mean1 = sum1 / da.maximum(cnt1, 1)
                 mean2 = sum2 / da.maximum(cnt2, 1)
                 overlap_thresh = 0.1 * overlap[0] * overlap[1] * image_arr.shape[1]
-
+                
                 g = _gain_from_stats(mean1, mean2, cnt1, cnt2, overlap_thresh)
                 gain_tasks.append(g)
                 pair_meta.append((i_ROI1, i_ROI2))
@@ -339,16 +241,17 @@ def compute_global_normalisation(
     ROI_indices = {section: i for i, section in enumerate(ROIs)}
     if len(gain_graph) > 0:
         gains = least_squares(
-            gain_residuals,
-            x0=np.ones(len(ROIs), dtype=np.float32),
-            args=(gain_graph, ROI_indices),
-            bounds=(np.ones(num_ROIs, dtype=np.float32),
+            gain_residuals, 
+            x0=np.ones(len(ROIs), dtype=np.float32), 
+            args=(gain_graph, ROI_indices), 
+            bounds=(np.ones(num_ROIs, dtype=np.float32), 
                     np.full(num_ROIs, np.inf, dtype=np.float32))).x
     else:
         gains = np.ones(len(ROIs), dtype=np.float32)
     max_idx = np.argmax(gains)
     gain_map = {tile: (gains[i] / gains[max_idx]) for i, tile in enumerate(ROIs)}
     logger.info(f"Gain map computed for {channel_name}:\n" + print_dict(gain_map))
+
     return gain_map
 
 def correct_FOV(
@@ -358,7 +261,7 @@ def correct_FOV(
     z_profile: da.Array,
 ) -> da.Array:
     gain = gain_factors[f"ROI_{i_FOV}"]
-    return da.clip(FOV_dask * gain,
+    return da.clip(FOV_dask * gain * z_profile, 
                     0, 65535).astype(np.uint16)
 
 @validate_call
@@ -369,10 +272,10 @@ def correct_illumination(
     erase_source_image: bool = False,
 ) -> dict[str, Any]:
     """
-    Perform a global illumination correction on a multi-channel OME-Zarr image.
+    Perform a global illumination correction on a multi-channel OME-Zarr image. 
 
-    The task estimates correction coefficients per tile to normalize the global illumination
-    across all tiles. Additionally, it can perform a z-correction to compensate for
+    The task estimates correction coefficients per tile to normalize the global illumination 
+    across all tiles. Additionally, it can perform a z-correction to compensate for 
     Z band artifacts.
 
     Parameters:
@@ -390,7 +293,7 @@ def correct_illumination(
     new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
     logger.info(f"Start task: `Illumination Correction` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
-
+    
     # Map channel name to channel index
     channel_dict = {}
     channels = get_omero_channel_list(image_zarr_path=str(zarr_path))
@@ -404,7 +307,7 @@ def correct_illumination(
     # Get relevant metadata
     is_proxy = False
     fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
-    if "prepare_mesospim_omezarr" in fractal_tasks:
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
         is_proxy = True
     image_array = da.from_zarr(zarr_path / "0")
     ngff_image_meta = load_NgffImageMeta(zarr_url)
@@ -419,22 +322,23 @@ def correct_illumination(
     gain_factors = {}
     z_profile = {}
     for channel_name, channel_index in channel_dict.items():
-
+        
         # Compute correction factors
-        z_profile[channel_name] = compute_z_correction_profile(zarr_path,
-                                                    channel_name=channel_name,
+        if z_correction:
+            z_profile[channel_name] = compute_z_correction_profile(zarr_path, 
+                                                        channel_name=channel_name, 
+                                                        channel_index=channel_index,
+                                                        is_proxy=is_proxy)
+            
+            # Make z_profile dask-aligned with input chunks to avoid bloated graphs
+            z_profile[channel_name] = da.from_array(z_profile[channel_name], 
+                                                    chunks=(1, z_chunk, 1, 1))
+        else:
+            z_profile[channel_name] = da.ones((1, image_array.shape[1], 1, 1), 
+                                              chunks=(1, z_chunk, 1, 1))
+        gain_factors[channel_name] = compute_global_normalisation(zarr_path, 
+                                                    channel_name=channel_name, 
                                                     channel_index=channel_index,
-                                                    z_correction=z_correction,
-                                                    is_proxy=is_proxy)
-
-        # Make z_profile dask-aligned with input chunks to avoid bloated graphs
-        z_profile[channel_name] = da.from_array(z_profile[channel_name],
-                                                chunks=(1, z_chunk, 1, 1))
-
-        gain_factors[channel_name] = compute_global_normalisation(zarr_path,
-                                                    channel_name=channel_name,
-                                                    channel_index=channel_index,
-                                                    z_profile=z_profile[channel_name],
                                                     is_proxy=is_proxy)
 
     with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
@@ -496,8 +400,8 @@ def correct_illumination(
     new_group = zarr.open_group(str(new_zarr_path), mode="a")
     new_group.attrs.put(source_attrs)
 
-    contrast_limits = _determine_optimal_contrast(new_zarr_path,
-                                                  num_levels,
+    contrast_limits = _determine_optimal_contrast(new_zarr_path, 
+                                                  num_levels, 
                                                   segment_sample=True)
     _update_omero_channels(new_zarr_path, {"window": contrast_limits})
 
@@ -506,8 +410,8 @@ def correct_illumination(
         shutil.rmtree(zarr_path)
 
     image_list_updates = dict(
-        image_list_updates=[dict(zarr_url=str(new_zarr_path),
-                                 origin=str(zarr_path),
+        image_list_updates=[dict(zarr_url=str(new_zarr_path), 
+                                 origin=str(zarr_path), 
                                  attributes=dict(image=new_zarr_path.name))]
         )
     return image_list_updates

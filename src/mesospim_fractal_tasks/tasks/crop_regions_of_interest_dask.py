@@ -360,7 +360,7 @@ def crop_regions_of_interest(
 
     is_proxy = False
     fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
-    if "prepare_mesospim_omezarr" in fractal_tasks:
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
         is_proxy = True
 
     # Find coordinates table in OME-Zarr

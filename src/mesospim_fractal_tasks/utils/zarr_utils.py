@@ -1,8 +1,8 @@
 import zarr
 import dask.array as da
-
+import anndata as ad
 import logging
-from typing import Any, Union, Optional
+from typing import Any, Union, Optional, Sequence
 from skimage.measure import block_reduce
 import numpy as np
 from pathlib import Path
@@ -12,6 +12,92 @@ from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
+
+def convert_ROI_table_to_indices(
+    ROI: ad.AnnData,
+    scale_zyx: Sequence[float],
+    cols_xyz_pos: Sequence[str] = [
+        "x_micrometer",
+        "y_micrometer",
+        "z_micrometer",
+    ],
+    cols_xyz_len: Sequence[str] = [
+        "len_x_micrometer",
+        "len_y_micrometer",
+        "len_z_micrometer",
+    ],
+) -> list[list[int]]:
+    """
+    Convert a ROI AnnData table into integer array indices.
+
+    Args:
+        ROI: AnnData table with list of ROIs.
+        scale_zyx:
+            Physical-unit pixel ZYX sizes at the desired pyramid level.
+        coarsening_xy: Linear coarsening factor in the YX plane.
+        cols_xyz_pos: Column names for XYZ ROI positions.
+        cols_xyz_len: Column names for XYZ ROI edges.
+
+    Raises:
+        ValueError:
+            If any of the array indices is negative.
+
+    Returns:
+        Nested list of indices. The main list has one item per ROI. Each ROI
+            item is a list of six integers as in `[start_z, end_z, start_y,
+            end_y, start_x, end_x]`. The array-index interval for a given ROI
+            is `start_x:end_x` along X, and so on for Y and Z.
+    """
+    # Handle empty ROI table
+    if len(ROI) == 0:
+        return []
+
+    # Set pyramid-level pixel sizes
+    pxl_size_z, pxl_size_y, pxl_size_x = scale_zyx
+
+    x_pos, y_pos, z_pos = cols_xyz_pos[:]
+    x_len, y_len, z_len = cols_xyz_len[:]
+
+    list_indices = []
+    for ROI_name in ROI.obs_names:
+        # Extract data from anndata table
+        x_micrometer = ROI[ROI_name, x_pos].X[0, 0]
+        y_micrometer = ROI[ROI_name, y_pos].X[0, 0]
+        z_micrometer = ROI[ROI_name, z_pos].X[0, 0]
+        len_x_micrometer = ROI[ROI_name, x_len].X[0, 0]
+        len_y_micrometer = ROI[ROI_name, y_len].X[0, 0]
+        len_z_micrometer = ROI[ROI_name, z_len].X[0, 0]
+
+        # Identify indices along the three dimensions
+        start_x = x_micrometer / pxl_size_x
+        end_x = (x_micrometer + len_x_micrometer) / pxl_size_x
+        start_y = y_micrometer / pxl_size_y
+        end_y = (y_micrometer + len_y_micrometer) / pxl_size_y
+        start_z = z_micrometer / pxl_size_z
+        end_z = (z_micrometer + len_z_micrometer) / pxl_size_z
+        indices = [start_z, end_z, start_y, end_y, start_x, end_x]
+
+        # Round indices to lower integer
+        indices = list(map(round, indices))
+
+        # Fail for negative indices
+        if min(indices) < 0:
+            raise ValueError(
+                f"ROI {ROI_name} converted into negative array indices.\n"
+                f"ZYX position: {z_micrometer}, {y_micrometer}, "
+                f"{x_micrometer}\n"
+                f"ZYX pixel sizes: {pxl_size_z}, {pxl_size_y}, "
+                f"{pxl_size_x}\n"
+                "Hint: As of fractal-tasks-core v0.12, FOV/well ROI "
+                "tables with non-zero origins (e.g. the ones created with "
+                "v0.11) are not supported."
+            )
+
+        # Append ROI indices to to list
+        list_indices.append(indices[:])
+
+    return list_indices
+
 
 def _get_pyramid_structure(
     zarr_path: Path

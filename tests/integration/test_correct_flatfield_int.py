@@ -28,7 +28,8 @@ def test_collect_fovs_default():
         resolution_level=1,
         pixel_sizes_yx=(1.3, 1.3),
         n_zplanes=n_zplanes,
-        z_levels=None
+        z_levels=None,
+        is_proxy=False,
     )
 
     # Should return exactly n_zplanes slices
@@ -89,6 +90,8 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
             FOV_list=[0],
             z_levels=None,
             saving_path=None,
+            is_proxy=False,
+            resolution_level=0,
         )
     )
 

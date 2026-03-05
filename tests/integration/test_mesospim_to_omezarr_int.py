@@ -6,6 +6,7 @@ from pathlib import Path
 from mesospim_fractal_tasks.tasks.mesospim_to_omezarr import (
     mesospim_to_omezarr,
 )
+from mesospim_fractal_tasks.utils.models import DimTuple
 from tests.conftest import mock_dask_distributed
 
 MODULE = "mesospim_fractal_tasks.tasks.mesospim_to_omezarr"
@@ -53,7 +54,7 @@ def test_mesospim_to_omezarr_writes_correct_data_h5(
         pattern="example",
         zarr_name="output_h5",
         num_levels=2,
-        chunksize=(2, 4, 3),
+        chunksize=DimTuple(z=2, y=4, x=3),
         overwrite=True,
     )
 
@@ -72,7 +73,7 @@ def test_mesospim_to_omezarr_writes_correct_data_h5(
         zarr_name="output_raw",
         extension="raw",
         num_levels=2,
-        chunksize=(2, 3, 4),
+        chunksize=DimTuple(z=2, y=4, x=3),
         overwrite=True,
     )
 
@@ -91,7 +92,7 @@ def test_mesospim_to_omezarr_writes_correct_data_h5(
         zarr_name="output_tiff",
         extension="tiff",
         num_levels=2,
-        chunksize=(2, 3, 4),
+        chunksize=DimTuple(z=2, y=4, x=3),
         overwrite=True,
     )
 

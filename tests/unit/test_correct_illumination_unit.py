@@ -76,7 +76,7 @@ def test_compute_global_normalisation_basic(
             zarr_path=tmp_path,
             channel_name="DAPI",
             channel_index=0,
-            z_profile=z_profile,
+            is_proxy=False,
         )
 
     mock_lsq.assert_called_once()
@@ -110,7 +110,7 @@ def test_compute_global_normalisation_no_tile_overlap(
         zarr_path=tmp_path,
         channel_name="DAPI",
         channel_index=0,
-        z_profile=z_profile,
+        is_proxy=False,
     )
 
     # both gains are 1 → normalized to 1
@@ -138,7 +138,7 @@ def test_compute_global_normalisation_insufficient_overlap(
         zarr_path=tmp_path,
         channel_name="DAPI",
         channel_index=0,
-        z_profile=z_profile,
+        is_proxy=False,
     )
 
     # gain_graph should contain one pair, with gain = 1
@@ -163,7 +163,7 @@ def test_compute_global_normalisation_single_roi(
         zarr_path=tmp_path,
         channel_name="DAPI",
         channel_index=0,
-        z_profile=np.ones((1, 1, 1, 1)),
+        is_proxy=False,
     )
 
     mocked_lsq.assert_not_called()
@@ -191,7 +191,8 @@ def test_z_correction_call(
         init_args=dict(
             channel_name="DAPI",
             channel_index=0,
-            n_FOVs=9
+            n_FOVs=9,
+            is_proxy=False,
         ),
         z_correction=z_correction,
     )

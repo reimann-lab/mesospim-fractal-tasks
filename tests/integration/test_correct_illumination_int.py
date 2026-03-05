@@ -48,7 +48,8 @@ def test_correct_illumination_main_output(
         init_args=dict(
             channel_name="DAPI",
             channel_index=0,
-            n_FOVs=2
+            n_FOVs=2,
+            is_proxy=False,
         )
     )
 

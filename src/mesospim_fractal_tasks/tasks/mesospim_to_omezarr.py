@@ -658,8 +658,8 @@ def convert_h5_multitile(
                 logger.info(f"Converted {tile_name} to zarr") 
                 
                 if c == 0:
-                    x_pos = abs(channel_df.iloc[t]["x_pos"] - channel_df[0, "x_pos"])
-                    y_pos = abs(channel_df.iloc[t]["y_pos"] - channel_df[0, "y_pos"])
+                    x_pos = abs(channel_df.iloc[t]["x_pos"] - channel_df.iloc[0]["x_pos"])
+                    y_pos = abs(channel_df.iloc[t]["y_pos"] - channel_df.iloc[0]["y_pos"])
                     roi_df.loc[t, "z_micrometer"] = 0
                     roi_df.loc[t, "y_micrometer"] = y_counter * y_scale 
                     roi_df.loc[t, "x_micrometer"] = x_counter * x_scale 

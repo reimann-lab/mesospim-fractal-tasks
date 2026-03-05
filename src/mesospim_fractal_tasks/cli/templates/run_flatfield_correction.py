@@ -66,5 +66,5 @@ if __name__ == "__main__":
         save_models=save_models,
         resolution_level=resolution_level,
         n_zplanes=n_zplanes,
-        advanced_basicpy_model_params=model_params
+        basicpy_model_params=model_params
     )

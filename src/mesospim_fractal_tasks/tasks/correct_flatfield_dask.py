@@ -497,12 +497,12 @@ def correct_flatfield(
     z_size = image_arr.shape[1]
 
     # Define FOV list
-    if FOV_list is None and z_levels is not None:
-        FOV_list = define_FOV_list(zarr_path)
-    
     if FOV_list is not None:
         assert min(FOV_list) > 0, ("FOV list must start at 1.")
         FOV_list = [int(i-1) for i in FOV_list]
+
+    if FOV_list is None and z_levels is not None:
+        FOV_list = define_FOV_list(zarr_path)
 
     if z_levels is not None:
         assert len(z_levels) == 2, "z_levels must be a list of two numbers."
@@ -545,12 +545,11 @@ def correct_flatfield(
             )
             if models_folder is None:
                 if FOV_list is not None:
-                        assert len(FOV_list) != 0, "FOV list is empty!"
-                        client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-                        illum_profiles[channel] = compute_empty_fov_models(
-                            FOV_data=FOV_data,
-                            channel_label=channel,
-                        )
+                    assert len(FOV_list) != 0, "FOV list is empty!"
+                    illum_profiles[channel] = compute_empty_fov_models(
+                        FOV_data=FOV_data,
+                        channel_label=channel,
+                    )
                 else:
                     if basicpy_model_params is None:
                         basicpy_model_params = BaSiCPyModelParams()
@@ -637,6 +636,36 @@ def correct_flatfield(
             futures.append(fut)
         client.gather(futures)
 
+        # Copy ROI tables from the old zarr_url
+        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
+
+        # Copy NGFF metadata from the old zarr_url to the new zarr
+        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
+                    f" to {new_zarr_path.name}.")
+        source_group = zarr.open_group(zarr_path, mode="r")
+        source_attrs = source_group.attrs.asdict()
+        image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
+        source_attrs["multiscales"][0]["name"] = image_name
+        fractal_tasks = source_attrs.get("fractal_tasks", {})
+        task_dict = dict(
+            version=__version__.split("dev")[0][:-1],
+            commit=__commit__,
+            input_parameters=dict(
+                models_folder=models_folder,
+                resolution_level=resolution_level,
+                n_zplanes=n_zplanes,
+                basicpy_model_params=get_non_default_params(
+                    basicpy_model_params) if basicpy_model_params is not None else None,
+                FOV_list=FOV_list,
+                z_levels=z_levels,
+                save_models=save_models
+            )
+        )
+        fractal_tasks["correct_flatfield"] = task_dict
+        source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
+        new_group = zarr.open_group(str(new_zarr_path), mode="a")
+        new_group.attrs.put(source_attrs)
+
         futures = []
         for channel_name, channel_idx in channel_dict.items():
             fut = client.submit(
@@ -663,36 +692,6 @@ def correct_flatfield(
                 cluster.close(timeout=300)
             except TimeoutError:
                 pass
-
-    # Copy ROI tables from the old zarr_url
-    _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
-
-    # Copy NGFF metadata from the old zarr_url to the new zarr
-    logger.info(f"Copying NGFF metadata from {zarr_path.name}"
-                f" to {new_zarr_path.name}.")
-    source_group = zarr.open_group(zarr_path, mode="r")
-    source_attrs = source_group.attrs.asdict()
-    image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
-    source_attrs["multiscales"][0]["name"] = image_name
-    fractal_tasks = source_attrs.get("fractal_tasks", {})
-    task_dict = dict(
-        version=__version__.split("dev")[0][:-1],
-        commit=__commit__,
-        input_parameters=dict(
-            models_folder=models_folder,
-            resolution_level=resolution_level,
-            n_zplanes=n_zplanes,
-            basicpy_model_params=get_non_default_params(
-                basicpy_model_params) if basicpy_model_params is not None else None,
-            FOV_list=FOV_list,
-            z_levels=z_levels,
-            save_models=save_models
-        )
-    )
-    fractal_tasks["correct_flatfield"] = task_dict
-    source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
-    new_group = zarr.open_group(str(new_zarr_path), mode="a")
-    new_group.attrs.put(source_attrs)
 
     contrast_limits = _determine_optimal_contrast(
         new_zarr_path, 

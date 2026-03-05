@@ -168,6 +168,9 @@ def crop_regions_of_interest(
             (standard argument for Fractal tasks, managed by Fractal server).
         init_args: Intialization arguments provided by
             `init_crop_regions_of_interest`.
+
+    Returns:
+        dict: A dictionary containing the updated image list.
     """
     zarr_path = Path(zarr_url)
     logger.info(f"Starting task: `Crop Region of Interest` "

@@ -159,9 +159,6 @@ def compute_global_normalisation(
     # Read attributes from NGFF metadata
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     num_levels = ngff_image_meta.num_levels
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
 
     # Lazily load highest-res level from original zarr array
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
@@ -341,68 +338,82 @@ def correct_illumination(
                                                     channel_index=channel_index,
                                                     is_proxy=is_proxy)
 
-    with _set_dask_cluster(n_workers=len(channel_dict.keys())) as cluster:
-        with Client(cluster) as client:
-            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-            futures = []
-            for channel_name, channel_idx in channel_dict.items():
-                fut = client.submit(
-                    correct_per_channel,
-                    zarr_path=zarr_path,
-                    new_zarr_path=new_zarr_path,
-                    channel_name=channel_name,
-                    channel_index=channel_idx,
-                    full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
-                    is_proxy=is_proxy,
-                    correct_func=correct_FOV,
-                    correct_func_kwargs={"gain_factors": gain_factors[channel_name],
-                                        "z_profile": z_profile[channel_name]},
-                    pure=False,
-                    retries=0
-                )
-                futures.append(fut)
-            client.gather(futures)
+    cluster = None
+    client = None
+    try:
+        cluster = _set_dask_cluster()
+        client = Client(cluster)
+        client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+        futures = []
+        for channel_name, channel_idx in channel_dict.items():
+            fut = client.submit(
+                correct_per_channel,
+                zarr_path=zarr_path,
+                new_zarr_path=new_zarr_path,
+                channel_name=channel_name,
+                channel_index=channel_idx,
+                full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+                is_proxy=is_proxy,
+                correct_func=correct_FOV,
+                correct_func_kwargs={"gain_factors": gain_factors[channel_name],
+                                    "z_profile": z_profile[channel_name]},
+                pure=False,
+                retries=0
+            )
+            futures.append(fut)
+        client.gather(futures)
 
-            futures = []
-            for channel_name, channel_idx in channel_dict.items():
-                fut = client.submit(
-                    build_pyramid,
-                    zarr_url=new_zarr_path,
-                    pyramid_dict=pyramid_dict,
-                    channel_index=channel_idx,
-                    channel_name=channel_name,
-                    pure=False,
-                    retries=0
-                )
-                futures.append(fut)
-            client.gather(futures)
+        # Copy ROI tables from the old zarr_url
+        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
 
-    # Copy ROI tables from the old zarr_url
-    _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
-
-    # Copy NGFF metadata from the old zarr_url to the new zarr
-    logger.info(f"Copying NGFF metadata from {zarr_path.name}"
-                f" to {new_zarr_path.name}.")
-    source_group = zarr.open_group(zarr_path, mode="r")
-    source_attrs = source_group.attrs.asdict()
-    image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
-    source_attrs["multiscales"][0]["name"] = image_name
-    fractal_tasks = source_attrs.get("fractal_tasks", {})
-    task_dict = dict(
-        version=__version__.split("dev")[0][:-1],
-        commit=__commit__,
-        input_parameters=dict(
-            z_correction=z_correction,
+        # Copy NGFF metadata from the old zarr_url to the new zarr
+        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
+                    f" to {new_zarr_path.name}.")
+        source_group = zarr.open_group(zarr_path, mode="r")
+        source_attrs = source_group.attrs.asdict()
+        image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
+        source_attrs["multiscales"][0]["name"] = image_name
+        fractal_tasks = source_attrs.get("fractal_tasks", {})
+        task_dict = dict(
+            version=__version__.split("dev")[0][:-1],
+            commit=__commit__,
+            input_parameters=dict(
+                z_correction=z_correction,
+            )
         )
-    )
-    fractal_tasks["correct_illumination"] = task_dict
-    source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
-    new_group = zarr.open_group(str(new_zarr_path), mode="a")
-    new_group.attrs.put(source_attrs)
+        fractal_tasks["correct_illumination"] = task_dict
+        source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
+        new_group = zarr.open_group(str(new_zarr_path), mode="a")
+        new_group.attrs.put(source_attrs)
+
+        futures = []
+        for channel_name, channel_idx in channel_dict.items():
+            fut = client.submit(
+                build_pyramid,
+                zarr_url=new_zarr_path,
+                pyramid_dict=pyramid_dict,
+                channel_index=channel_idx,
+                channel_name=channel_name,
+                pure=False,
+                retries=0
+            )
+            futures.append(fut)
+        client.gather(futures)
+    finally:
+        if client is not None:
+            try:
+                client.close(timeout="300s")  # give it more time
+            except TimeoutError:
+                pass
+        if cluster is not None:
+            try:
+                cluster.close(timeout=300)
+            except TimeoutError:
+                pass
 
     contrast_limits = _determine_optimal_contrast(new_zarr_path, 
-                                                  num_levels, 
-                                                  segment_sample=True)
+                                                num_levels, 
+                                                segment_sample=True)
     _update_omero_channels(new_zarr_path, {"window": contrast_limits})
 
     if erase_source_image:

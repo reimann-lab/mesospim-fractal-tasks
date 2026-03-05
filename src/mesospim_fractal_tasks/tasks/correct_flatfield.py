@@ -527,7 +527,7 @@ def correct_flatfield(
                                                     chunks=image_arr.chunksize[-2:])
 
         # Iterate over FOV ROIs
-        num_ROIs = len(list_indices)
+        logger.info(f"Starting flatfield correction for {channel_name}...")
         for i_ROI, indices in enumerate(list_indices):
 
             # Define region
@@ -546,12 +546,12 @@ def correct_flatfield(
             )
 
             # Write to disk
-            logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
             corrected_fov.to_zarr( # type: ignore
                 url=new_image_arr,
                 region=region,
                 compute=True,
             )
+            logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
         logger.info(f"Illumination correction for {channel_name} completed.")
 
         # Copy NGFF metadata from the old zarr_url to the new zarr if needed

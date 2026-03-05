@@ -14,10 +14,12 @@ from scipy.ndimage import gaussian_filter1d
 
 from mesospim_fractal_tasks import __version__, __commit__
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
-
-from fractal_tasks_core.roi import (
+from mesospim_fractal_tasks.utils.zarr_utils import (
     convert_ROI_table_to_indices,
-)
+    build_pyramid,
+    _get_pyramid_structure)
+from mesospim_fractal_tasks.utils.models import ProxyArray
+
 from fractal_tasks_core.ngff import load_NgffImageMeta
 from fractal_tasks_core.tasks._zarr_utils import _copy_tables_from_zarr_url
 
@@ -37,6 +39,7 @@ def compute_z_correction_profile(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
+    is_proxy: bool,
 ) -> np.ndarray:
     """
     Compute model of z-correction factor to correct uneven illumination in Z direction 
@@ -46,6 +49,7 @@ def compute_z_correction_profile(
         zarr_path (Path): Path to the OME-Zarr image to be processed.
         channel_name (str): Name of the channel to process.
         channel_index (int): Index of the channel to process.
+        is_proxy (bool): Whether the image is a proxy image.
 
     Returns:
         z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the per-z correction 
@@ -53,12 +57,12 @@ def compute_z_correction_profile(
     """
     logging.info(f"Computing z-correction profile for channel {channel_name} "
                  "for all FOVs.")
-    ngff_image_meta = load_NgffImageMeta(zarr_path)
+    ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     num_levels = ngff_image_meta.num_levels
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
-    channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
+    if is_proxy:
+        channel_arr = ProxyArray.open(zarr_path, requested_level=num_levels-1)[channel_index]
+    else:
+        channel_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))[channel_index]
 
     z_profile_percentile = []
     z_profile_percentile= np.median(np.median(
@@ -118,7 +122,7 @@ def compute_global_normalisation(
     zarr_path: Path,
     channel_name: str,
     channel_index: int,
-    z_profile: da.Array
+    is_proxy: bool,
 ) -> dict[str, float]:
     """
     Compute the global normalisation factors for each ROI to correct for uneven 
@@ -128,8 +132,7 @@ def compute_global_normalisation(
         zarr_path (Path): Path to the OME-Zarr image to be processed.
         channel_name (str): Name of the channel to process.
         channel_index (int): Index of the channel to process.
-        z_profile (np.ndarray): Array of shape (1, Z, 1, 1) with the 
-            per-z correction factors.
+        is_proxy (bool): Whether the image is a proxy image.
     
     Returns:
         dict[str, float]: Dictionary mapping ROI names to their corresponding gains.
@@ -138,36 +141,32 @@ def compute_global_normalisation(
     # Read attributes from NGFF metadata
     ngff_image_meta = load_NgffImageMeta(str(zarr_path))
     num_levels = ngff_image_meta.num_levels
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
 
     # Lazily load highest-res level from original zarr array
     logger.info(f"Loading lowest resolution image for channel {channel_name}.")
-    image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
+    if is_proxy:
+        image_arr = ProxyArray.open(zarr_path, requested_level=(num_levels-1))
+    else:
+        image_arr = da.from_zarr(Path(zarr_path, str(num_levels-1)))
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
-    full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
+    scale = ngff_image_meta.get_pixel_sizes_zyx(level=num_levels-1)
     original_indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=(num_levels-1),
-        coarsening_xy=coarsening_xy,
+        scale_zyx=scale,
         cols_xyz_pos= [
         "x_micrometer_original",
         "y_micrometer_original",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
     zarr_indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=(num_levels-1),
-        coarsening_xy=coarsening_xy,
+        scale_zyx=scale,
         cols_xyz_pos= [
         "x_micrometer",
         "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
 
     logger.info(f"Start computing difference of the mean between FOVs...")
@@ -189,10 +188,10 @@ def compute_global_normalisation(
                 _, _, s_y2, e_y2, s_x2, e_x2 = zarr_indices[i_ROI2][:]
                 overlap_tile1 = image_arr[i_c, :, 
                                           e_y1 - overlap[0]:e_y1, 
-                                          e_x1 - overlap[1]:e_x1] * z_profile
+                                          e_x1 - overlap[1]:e_x1]
                 overlap_tile2 = image_arr[i_c, :, 
                                           s_y2:s_y2 + overlap[0], 
-                                          s_x2:s_x2 + overlap[1]] * z_profile
+                                          s_x2:s_x2 + overlap[1]]
                 mask1 = overlap_tile1 > 0
                 mask2 = overlap_tile2 > 0
                 sum1 = da.sum(da.where(mask1, overlap_tile1, 0))
@@ -269,39 +268,40 @@ def correct_illumination(
     if not new_zarr_path.exists():
         logger.error(f"Error! {new_zarr_path.name} does not exist.")
         raise FileNotFoundError
-    image_array = da.from_zarr(Path(zarr_url, "0"))
     
     # Get channel name from init task
     channel_name = init_args["channel_name"]
     channel_index = init_args["channel_index"]
+    is_proxy = init_args["is_proxy"]
+    if is_proxy:
+        image_array = ProxyArray.open(zarr_path, requested_level=0)
+    else:
+        image_array = da.from_zarr(Path(zarr_url, "0"))
 
     # Get relevant metadata
     ngff_image_meta = load_NgffImageMeta(zarr_url)
-    coarsening_xy = ngff_image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
-    num_levels = ngff_image_meta.num_levels
+    pyramid_dict = _get_pyramid_structure(zarr_path)
     full_res_pxl_sizes_zyx = ngff_image_meta.get_pixel_sizes_zyx(level=0)
-    z_chunk = image_array.chunks[1][0]
+    z_chunk = image_array.chunksize[1]
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_url, "tables", "FOV_ROI_table"))
     indices = convert_ROI_table_to_indices(
         FOV_ROI_table,
-        level=0,
-        coarsening_xy=2,
+        scale_zyx=full_res_pxl_sizes_zyx,
         cols_xyz_pos= [
         "x_micrometer",
         "y_micrometer",
-        "z_micrometer"],
-        full_res_pxl_sizes_zyx=full_res_pxl_sizes_zyx,
+        "z_micrometer"]
     )
 
     # Compute correction factors
     if z_correction:
         z_profile = compute_z_correction_profile(zarr_path, 
                                                  channel_name=channel_name, 
-                                                 channel_index=channel_index)
+                                                 channel_index=channel_index,
+                                                 is_proxy=is_proxy)
+        
         # Make z_profile dask-aligned with input chunks to avoid bloated graphs
         z_profile[channel_name] = da.from_array(z_profile[channel_name], 
                                                 chunks=(1, z_chunk, 1, 1))
@@ -311,74 +311,81 @@ def correct_illumination(
     gain_factors = compute_global_normalisation(zarr_path, 
                                                 channel_name=channel_name, 
                                                 channel_index=channel_index,
-                                                z_profile=z_profile)
+                                                is_proxy=is_proxy)
 
-    logger.info(f"Starting illumination correction...")
-    with _set_dask_cluster() as cluster:
-        with Client(cluster) as client:
-            for i_ROI, idxs_ROI in enumerate(indices):
-                s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
-                region = (
-                    slice(channel_index, channel_index + 1),
-                    slice(s_z, e_z),
-                    slice(s_y, e_y),
-                    slice(s_x, e_x),
-                )
-                gain = gain_factors[f"ROI_{i_ROI}"]
-                corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
-                                                0, 65535).astype(np.uint16)
-                
-                # Write to disk
-                logger.info(f"Saving corrected FOV to {new_zarr_path.name}.")
-                corrected_FOV.to_zarr(
-                    url=zarr.open(str(new_zarr_path / "0")),
-                    region=region,
-                    compute=True,
-                )
-
-            logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
-            for level in range(0, num_levels-1):
-                up_channel_arr = da.from_zarr(new_zarr_path / str(level))[channel_index:channel_index+1]
-                down_channel_arr = da.coarsen(
-                    reduction=np.mean,
-                    x=up_channel_arr,
-                    axes={0:1, 1:1, 2: coarsening_xy, 3: coarsening_xy},
-                    trim_excess=True)
-                region = (slice(channel_index, channel_index+1),
-                        slice(None),
-                        slice(None),
-                        slice(None))
-                down_channel_arr = down_channel_arr.rechunk(image_array.chunksize)
-                down_channel_arr.to_zarr(
-                    url=zarr.open(str(new_zarr_path / str(level+1))), 
-                    region=region, 
-                    overwrite=True)
-        
-    # Copy NGFF metadata from the old zarr_url to the new zarr if needed
-    if channel_index == 0:
-
-        # Copy ROI tables from the old zarr_url
-        _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
-
-        # Copy NGFF metadata from the old zarr_url to the new zarr
-        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
-                    f" to {new_zarr_path.name}.")
-        source_group = zarr.open_group(zarr_path, mode="r")
-        source_attrs = source_group.attrs.asdict()
-        image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
-        source_attrs["multiscales"][0]["name"] = image_name
-        fractal_tasks = source_attrs.get("fractal_tasks", {})
-        task_dict = dict(
-            version=__version__.split("dev")[0][:-1],
-            commit=__commit__,
-            input_parameters=dict(
-                z_correction=z_correction,
+    logger.info(f"Starting illumination correction for {channel_name}...")
+    cluster = None
+    client = None
+    try:
+        cluster = _set_dask_cluster()
+        client = Client(cluster)
+        client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+        for i_ROI, idxs_ROI in enumerate(indices):
+            s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
+            region = (
+                slice(channel_index, channel_index + 1),
+                slice(s_z, e_z),
+                slice(s_y, e_y),
+                slice(s_x, e_x),
             )
+            gain = gain_factors[f"ROI_{i_ROI}"]
+            corrected_FOV = da.clip(image_array[region] * gain * z_profile, 
+                                            0, 65535).astype(np.uint16)
+            
+            # Write to disk
+            corrected_FOV.to_zarr(
+                url=zarr.open(str(new_zarr_path / "0")),
+                region=region,
+                compute=True,
+            )
+            logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
+
+        # Copy NGFF metadata from the old zarr_url to the new zarr if needed
+        if channel_index == 0:
+
+            # Copy ROI tables from the old zarr_url
+            _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
+
+            # Copy NGFF metadata from the old zarr_url to the new zarr
+            logger.info(f"Copying NGFF metadata from {zarr_path.name}"
+                        f" to {new_zarr_path.name}.")
+            source_group = zarr.open_group(zarr_path, mode="r")
+            source_attrs = source_group.attrs.asdict()
+            image_name = source_attrs["multiscales"][0]["name"] + "_illum_corr"
+            source_attrs["multiscales"][0]["name"] = image_name
+            fractal_tasks = source_attrs.get("fractal_tasks", {})
+            task_dict = dict(
+                version=__version__.split("dev")[0][:-1],
+                commit=__commit__,
+                input_parameters=dict(
+                    z_correction=z_correction,
+                )
+            )
+            fractal_tasks["correct_illumination"] = task_dict
+            source_attrs["fractal_tasks"] = fractal_tasks
+            new_group = zarr.open_group(str(new_zarr_path), mode="a")
+            new_group.attrs.put(source_attrs)
+
+        logger.info(f"Building the pyramid of resolution levels for {new_zarr_path.name}.")
+        build_pyramid(
+            zarr_url=new_zarr_path,
+            pyramid_dict=pyramid_dict,
+            channel_index=channel_index,
+            channel_name=channel_name,
         )
-        fractal_tasks["correct_illumination"] = task_dict
-        source_attrs["fractal_tasks"] = fractal_tasks
-        new_group = zarr.open_group(str(new_zarr_path), mode="a")
-        new_group.attrs.put(source_attrs)
+
+    finally:
+        if client is not None:
+            try:
+                client.close(timeout="300s")  # give it more time
+            except TimeoutError:
+                pass
+
+        if cluster is not None:
+            try:
+                cluster.close(timeout=300)
+            except TimeoutError:
+                pass
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

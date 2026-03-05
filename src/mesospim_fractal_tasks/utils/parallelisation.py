@@ -88,10 +88,10 @@ def correct_per_channel(
                                      **correct_func_kwargs)
         
         # Write to disk
-        logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
         corrected_FOV.to_zarr(
             url=new_image_array,
             region=region,
             compute=True,
         )
+        logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
     logger.info(f"Illumination correction for {channel_name} completed.")

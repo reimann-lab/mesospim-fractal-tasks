@@ -9,7 +9,8 @@ import anndata as ad
 import zarr
 from pathlib import Path
 
-from fractal_tasks_core.ngff import load_NgffImageMeta
+from mesospim_fractal_tasks.utils.zarr_utils import (
+    _get_pyramid_structure, create_zarr_pyramid)
 
 logger = logging.getLogger(__name__)
 
@@ -72,35 +73,23 @@ def init_correct_illumination(
             "Error! Expected only one zarr_url for this task."
         )
     zarr_path = Path(zarr_urls[0])
+    new_zarr_path = Path(zarr_path.parent, zarr_path.name + "_illum_corr")
     logger.info(f"Start task: `Illumination Correction (Initialisation)` "
                 f"for {zarr_path.parent.name}/{zarr_path.name}")
 
     logger.info(
         f"Calculating illumination profiles (flatfield/darkfield) based on "
         f"randomly sampled z planes across all ROIs for each channel.")
-
     channels_dict = group_by_channel(zarr_path)
 
-    image_meta = load_NgffImageMeta(zarr_path)
-    num_level = image_meta.num_levels
-    coarsening_xy = image_meta.coarsening_xy
-    if coarsening_xy is None:
-        coarsening_xy = 2
-    raw_array = zarr.open(zarr_path)["0"]
-    for level in range(num_level):
-        shape = (raw_array.shape[0], raw_array.shape[1],
-                 raw_array.shape[2] // 2**level, 
-                 raw_array.shape[3] // 2**level)
-        _ = zarr.create(
-            shape=shape,
-            chunks=raw_array.chunks,
-            store=zarr.storage.FSStore(Path(zarr_path.parent,
-                                            zarr_path.name + "_illum_corr",
-                                            str(level))),
-            dtype=raw_array.dtype,
-            overwrite=True,
-            dimension_separator="/",
-        )
+    is_proxy = False
+    fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
+    if "prepare_mesospim_omezarr" in fractal_tasks and zarr_path.name == "fake_raw_image":
+        is_proxy = True
+
+    # Create new zarr pyramid
+    pyramid_dict = _get_pyramid_structure(zarr_path)   
+    create_zarr_pyramid(zarr_path, new_zarr_name=new_zarr_path.name, pyramid_dict=pyramid_dict)
 
     parallelization_list = []
 
@@ -111,7 +100,8 @@ def init_correct_illumination(
                 init_args=dict(
                     channel_name=channel,
                     channel_index=channel_dict["index"],
-                    n_FOVs=channel_dict["n_FOVs"]
+                    n_FOVs=channel_dict["n_FOVs"],
+                    is_proxy=is_proxy,
                 ),
             )
         )

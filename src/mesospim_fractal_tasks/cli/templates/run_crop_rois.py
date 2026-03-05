@@ -8,6 +8,7 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"  # macOS Accelerate framework
 os.environ["NUMBA_NUM_THREADS"] = "1"
 
 from mesospim_fractal_tasks.tasks.crop_regions_of_interest_dask import crop_regions_of_interest
+from mesospim_fractal_tasks.utils.models import DimTuple
 
 
 ###############################################################################
@@ -23,10 +24,7 @@ roi_table_name = "roi_coords"
 crop_or_roi = "roi"
 
 # e.g. number of pyramid levels to build for the new ROI.
-num_levels = 4
-
-# e.g. Downsampling factor for the XY plane. Typical is 2
-coarsening_xy = 2
+num_levels = None
 
 # e.g. Set different chunks than original image.
 # To provide a value use: DimTuple(z=0, y=0, x=0) and replace 0 with your value

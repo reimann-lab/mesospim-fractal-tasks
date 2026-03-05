@@ -277,8 +277,8 @@ def save_roi_parallel(
     # Update FOV ROI table in case of crop
     if crop_or_roi == "crop":
         coords = dict(x_start=x_start, x_end=x_end, 
-                    y_start=y_start, y_end=y_end, 
-                    z_start=z_start, z_end=z_end)
+                      y_start=y_start, y_end=y_end, 
+                      z_start=z_start, z_end=z_end)
         fov_roi_table = adapt_roi_table(zarr_path, roi_path, coords, scale)
         
         # Write table
@@ -437,80 +437,108 @@ def crop_regions_of_interest(
                                        origin=str(zarr_path), 
                                        attributes=dict(image=roi_id),
                                        types={roi_type: True}))
-    if crop_or_roi == "crop":    
-        with _set_dask_cluster(n_workers=4) as cluster:
-            with Client(cluster) as client:
-                client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-                crop_id = parallelisation_list[0]["roi_id"]
-                crop_coords = parallelisation_list[0]["roi_coords"]
-                crop_path = parallelisation_list[0]["roi_path"]
-                pyramid_dict = parallelisation_list[0]["roi_pyramid"]
-                save_roi_parallel(zarr_path,
-                                roi_id=crop_id, 
-                                coords=crop_coords, 
-                                scale=tuple(scale),
-                                pyramid_dict=pyramid_dict,
-                                chunksize=chunk_size,
-                                crop_or_roi=crop_or_roi,
-                                is_proxy=is_proxy)
-                
-                # Write pyramid of resolution
-                logger.info(f"Building pyramid of resolution for {crop_path.name}")
-                build_pyramid(
-                    zarr_url=crop_path,
-                    pyramid_dict=pyramid_dict
-                )
-                
-                # Re-compute optimal contrast limits for ROI
-                contrast_limits = _determine_optimal_contrast(crop_path, len(pyramid_dict), segment_sample=True)
-                _update_omero_channels(crop_path, {"window": contrast_limits})
+    cluster = None
+    client = None
+    if crop_or_roi == "crop":   
+        try:
+            cluster = _set_dask_cluster(n_workers=4)
+            client = Client(cluster)
+            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+            crop_id = parallelisation_list[0]["roi_id"]
+            crop_coords = parallelisation_list[0]["roi_coords"]
+            crop_path = parallelisation_list[0]["roi_path"]
+            pyramid_dict = parallelisation_list[0]["roi_pyramid"]
+            save_roi_parallel(zarr_path,
+                            roi_id=crop_id, 
+                            coords=crop_coords, 
+                            scale=tuple(scale),
+                            pyramid_dict=pyramid_dict,
+                            chunksize=chunk_size,
+                            crop_or_roi=crop_or_roi,
+                            is_proxy=is_proxy)
+            
+            # Write pyramid of resolution
+            logger.info(f"Building pyramid of resolution for {crop_path.name}")
+            build_pyramid(
+                zarr_url=crop_path,
+                pyramid_dict=pyramid_dict
+            )
+            
+        finally:
+            if client is not None:
+                try:
+                    client.close(timeout="300s")  # give it more time
+                except TimeoutError:
+                    pass
+
+            if cluster is not None:
+                try:
+                    cluster.close(timeout=300)
+                except TimeoutError:
+                    pass
+
+        # Re-compute optimal contrast limits for ROI
+        contrast_limits = _determine_optimal_contrast(crop_path, len(pyramid_dict), segment_sample=True)
+        _update_omero_channels(crop_path, {"window": contrast_limits})
 
         if erase_source_image:
             logger.info("Erasing source image...")
             shutil.rmtree(zarr_path)
 
     else:
-        with _set_dask_cluster(n_workers=len(parallelisation_list)) as cluster:
-            with Client(cluster) as client:
-                client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
-                futures = []
-                for _, roi_params in enumerate(parallelisation_list):
-                    fut = client.submit(save_roi_parallel, 
-                                zarr_path=zarr_path,
-                                roi_id=roi_params["roi_id"],
-                                coords=roi_params["roi_coords"],
-                                scale=scale,
-                                pyramid_dict=roi_params["roi_pyramid"],
-                                chunksize=chunk_size,
-                                crop_or_roi=crop_or_roi,
-                                is_proxy=is_proxy,
-                                pure=False,
-                                retries=1)
-                    futures.append(fut)
-                client.gather(futures)
-                for _, roi_params in enumerate(parallelisation_list):
-                    fut = client.submit(build_pyramid, 
-                                zarr_url=roi_params["roi_path"],
-                                pyramid_dict=roi_params["roi_pyramid"],
-                                pure=False,
-                                retries=1)
-                    futures.append(fut)
-                client.gather(futures)
-
-            # Re-compute optimal contrast limits for ROI
+        try:
+            cluster = _set_dask_cluster(n_workers=len(parallelisation_list))
+            client = Client(cluster)
+            client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
+            futures = []
             for _, roi_params in enumerate(parallelisation_list):
-                contrast_limits = _determine_optimal_contrast(
-                    roi_params["roi_path"], 
-                    len(roi_params["roi_pyramid"]),
-                    segment_sample=True)
-                _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
+                fut = client.submit(save_roi_parallel, 
+                            zarr_path=zarr_path,
+                            roi_id=roi_params["roi_id"],
+                            coords=roi_params["roi_coords"],
+                            scale=scale,
+                            pyramid_dict=roi_params["roi_pyramid"],
+                            chunksize=chunk_size,
+                            crop_or_roi=crop_or_roi,
+                            is_proxy=is_proxy,
+                            pure=False,
+                            retries=1)
+                futures.append(fut)
+            client.gather(futures)
+            for _, roi_params in enumerate(parallelisation_list):
+                fut = client.submit(build_pyramid, 
+                            zarr_url=roi_params["roi_path"],
+                            pyramid_dict=roi_params["roi_pyramid"],
+                            pure=False,
+                            retries=1)
+                futures.append(fut)
+            client.gather(futures)
+        finally:
+            if client is not None:
+                try:
+                    client.close(timeout="300s")  # give it more time
+                except TimeoutError:
+                    pass
+            if cluster is not None:
+                try:
+                    cluster.close(timeout=300)
+                except TimeoutError:
+                    pass
+
+        # Re-compute optimal contrast limits for ROI
+        for _, roi_params in enumerate(parallelisation_list):
+            contrast_limits = _determine_optimal_contrast(
+                roi_params["roi_path"], 
+                len(roi_params["roi_pyramid"]),
+                segment_sample=True)
+            _update_omero_channels(roi_params["roi_path"], {"window": contrast_limits})
         
         # Add roi masks in the source image
         for _, roi_params in enumerate(parallelisation_list):
             lowest_level = image_meta.num_levels - 1
             if is_proxy:
                 lowest_res_arr = ProxyArray.open(zarr_path, requested_level=lowest_level)
-                low_scale = lowest_res_arr.pyramid_dict["0"]["scale"]
+                low_scale = lowest_res_arr.pyramid_dict[str(lowest_level)]["scale"]
                 chunksize = lowest_res_arr.chunksize
             else:
                 lowest_res_arr = zarr.open_array(f"{zarr_path}/{lowest_level}", mode="r")

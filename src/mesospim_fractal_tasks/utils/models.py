@@ -216,10 +216,11 @@ class ProxyArray:
             desired_pyramid = _estimate_pyramid_depth(
                 shape=shape,
                 scale=scale,
+                num_levels=int(level_to_build)+1 
             )
             coarsening_z = 0
             coarsening_xy = 0
-            for level in range(requested_level, level_to_build):
+            for level in range(int(requested_level), int(level_to_build)):
                 coarsening_z += desired_pyramid[str(level)]["coarsening_z"]
                 coarsening_xy += desired_pyramid[str(level)]["coarsening_xy"]
             proxy_dask = da.coarsen(

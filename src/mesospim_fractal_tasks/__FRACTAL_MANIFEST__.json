@@ -12,11 +12,32 @@
       "type": "converter_non_parallel",
       "executable_non_parallel": "tasks/mesospim_to_omezarr.py",
       "meta_non_parallel": {
-        "cpus_per_task": 2,
-        "mem": 8000,
+        "cpus_per_task": 8,
+        "mem": 16000,
         "time": "2-00:00:00"
       },
       "args_schema_non_parallel": {
+        "$defs": {
+          "DimTuple": {
+            "description": "Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.",
+            "properties": {
+              "z": {
+                "title": "Z",
+                "type": "integer"
+              },
+              "y": {
+                "title": "Y",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "integer"
+              }
+            },
+            "title": "DimTuple",
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "zarr_dir": {
@@ -51,11 +72,11 @@
             "type": "string",
             "description": "Name of the metadata file. It is expected to be in the same folder as the acquisition files. Note: if not provided, a _meta.txt will be searched using the provided pattern. Default: None."
           },
-          "channel_color_file": {
+          "channel_color_settings": {
             "default": "default",
-            "title": "Channel Color File",
+            "title": "Channel Color Settings",
             "type": "string",
-            "description": "Path to a JSON file or keyword identifying the JSON file among provided defaults containing the channel colors information. Default: \"default\"."
+            "description": "Keyword identifying the channel color settings among all saved settings. Default: \"default\"."
           },
           "num_levels": {
             "title": "Num Levels",
@@ -63,27 +84,18 @@
             "description": "Number of pyramid levels (including the full resolution level, so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is recommended to have at least 6 levels. If not provided, the code will estimate the optimal pyramid depth based on the size of the image. Default: None."
           },
           "chunksize": {
-            "default": [
-              64,
-              1024,
-              1024
-            ],
-            "maxItems": 3,
-            "minItems": 3,
-            "prefixItems": [
+            "allOf": [
               {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "integer"
+                "$ref": "#/$defs/DimTuple"
               }
             ],
+            "default": {
+              "z": 64,
+              "y": 1024,
+              "x": 1024
+            },
             "title": "Chunksize",
-            "type": "array",
-            "description": "Chunk size to use for the OME-Zarr image. Default: (64, 1024, 1024)."
+            "description": "Chunk size to use for the OME-Zarr image. Smaller chunksizes improve visualisation smoothness but impairs processing efficiency. Default: (64, 1024, 1024)."
           },
           "overwrite": {
             "default": false,
@@ -121,7 +133,7 @@
       "executable_non_parallel": "tasks/init_correct_flatfield.py",
       "executable_parallel": "tasks/correct_flatfield.py",
       "meta_parallel": {
-        "cpus_per_task": 1,
+        "cpus_per_task": 8,
         "mem": 16000
       },
       "args_schema_non_parallel": {
@@ -156,6 +168,11 @@
             "type": "array",
             "description": "Two integers indicating the maximum number of z planes to process at the top and bottom of the 3D tile stack. If provided, illumination profiles will be computed using z planes up to the first number of z_levels at the bottom and down to the 2nd number of z_levels at the top of the tiles (expecting empty FOVs) without BaSiCPy. If FOV_list is not empty the subvolumes will be extracted from the tiles in FOV_list, otherwise from the four tiles at the corners. Default: None."
           },
+          "resolution_level": {
+            "title": "Resolution Level",
+            "type": "integer",
+            "description": "Resolution level at which to calculate the illumination correction profiles. If None, the lowest resolution level will be used for BaSiCPy and highest resolution level for empty FOVs. Default: None."
+          },
           "save_models": {
             "default": false,
             "title": "Save Models",
@@ -185,7 +202,7 @@
                 "default": 10,
                 "title": "Autosegment Margin",
                 "type": "integer",
-                "description": "Only meaningful when autosegment=True. It sets the margin of the segmentation mask to the thresholded region. "
+                "description": "Only meaningful when autosegment=True. It sets the margin of the segmentation mask to the thresholded region."
               },
               "epsilon": {
                 "default": 0.1,
@@ -240,17 +257,12 @@
           "init_args": {
             "title": "Init Args",
             "type": "object",
-            "description": "Missing description"
+            "description": "Intialization arguments provided by `init_correct_flatfield`."
           },
           "models_folder": {
             "title": "Models Folder",
             "type": "string",
             "description": "Folder name where illumination profiles are stored and can be used to perform flatfield correction. If provided, fitting models is skipped and only the correction step is performed. Default: None."
-          },
-          "resolution_level": {
-            "title": "Resolution Level",
-            "type": "integer",
-            "description": "Resolution level at which to calculate the illumination correction profiles. If None, the lowest resolution level will be used for BaSiCPy and highest resolution level for empty FOVs. Default: None."
           },
           "n_zplanes": {
             "default": 200,
@@ -299,8 +311,8 @@
       "executable_non_parallel": "tasks/init_correct_illumination.py",
       "executable_parallel": "tasks/correct_illumination.py",
       "meta_parallel": {
-        "cpus_per_task": 2,
-        "mem": 8000
+        "cpus_per_task": 8,
+        "mem": 16000
       },
       "args_schema_non_parallel": {
         "additionalProperties": false,
@@ -367,10 +379,31 @@
       "executable_non_parallel": "tasks/init_crop_regions_of_interest.py",
       "executable_parallel": "tasks/crop_regions_of_interest.py",
       "meta_parallel": {
-        "cpus_per_task": 2,
-        "mem": 8000
+        "cpus_per_task": 8,
+        "mem": 16000
       },
       "args_schema_non_parallel": {
+        "$defs": {
+          "DimTuple": {
+            "description": "Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.",
+            "properties": {
+              "z": {
+                "title": "Z",
+                "type": "integer"
+              },
+              "y": {
+                "title": "Y",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "integer"
+              }
+            },
+            "title": "DimTuple",
+            "type": "object"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "zarr_urls": {
@@ -402,11 +435,26 @@
             "type": "integer",
             "description": "Number of pyramid levels to generate for the ROI image (including the full resolution image). If not provided, the same multi-resolution pyramid size as the original image will be used. Default: None."
           },
-          "coarsening_xy": {
-            "default": 2,
-            "title": "Coarsening Xy",
-            "type": "integer",
-            "description": "Coarsening factor in XY for the ROI image. Optional, if different from the coarsening factor used for the full resolution image. Default: 2."
+          "chunksize": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/DimTuple"
+              }
+            ],
+            "title": "Chunksize",
+            "description": "Chunk size to use for the new ROI image(s). If None, the chunksize of the original image will be used. Default: None."
+          },
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean",
+            "description": "Whether to overwrite existing ROI images if they already exist in the OME-Zarr folder. Default: False."
+          },
+          "erase_source_image": {
+            "default": false,
+            "title": "Erase Source Image",
+            "type": "boolean",
+            "description": "If `True`, the source image will be erased after cropping. It only works if `crop_or_roi` is set to `crop`. Default: False."
           }
         },
         "required": [
@@ -577,6 +625,236 @@
         "title": "StitchWithMultiviewStitcher"
       },
       "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n"
+    },
+    {
+      "name": "Modify OME-Zarr structure",
+      "category": "Image Processing",
+      "modality": "lightsheet",
+      "tags": [
+        "mesoSPIM",
+        "OME-Zarr",
+        "Pyramid",
+        "Structure",
+        "Channels"
+      ],
+      "type": "parallel",
+      "executable_parallel": "tasks/stitch_with_multiview_stitcher.py",
+      "meta_parallel": {
+        "cpus_per_task": 8,
+        "mem": 16000
+      },
+      "args_schema_parallel": {
+        "$defs": {
+          "DimTuple": {
+            "description": "Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.",
+            "properties": {
+              "z": {
+                "title": "Z",
+                "type": "integer"
+              },
+              "y": {
+                "title": "Y",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "integer"
+              }
+            },
+            "title": "DimTuple",
+            "type": "object"
+          },
+          "StitchingChannelInputModel": {
+            "description": "Channel input for stitching.",
+            "properties": {
+              "wavelength_id": {
+                "title": "Wavelength Id",
+                "type": "string"
+              },
+              "label": {
+                "title": "Label",
+                "type": "string"
+              }
+            },
+            "title": "StitchingChannelInputModel",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "zarr_url": {
+            "title": "Zarr Url",
+            "type": "string",
+            "description": "Absolute path to the OME-Zarr image."
+          },
+          "channel": {
+            "$ref": "#/$defs/StitchingChannelInputModel",
+            "title": "Channel",
+            "description": "Channel for registration; requires either `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not both."
+          },
+          "registration_resolution_level": {
+            "title": "Registration Resolution Level",
+            "type": "integer",
+            "description": "Resolution level to use for registration. Recommended to set the lowest level possible, e.g. 5 (highest is 0). If None, the lowest resolution level available will be used for registration. Default: None."
+          },
+          "registration_on_z_proj": {
+            "default": false,
+            "title": "Registration On Z Proj",
+            "type": "boolean",
+            "description": "Whether to perform registration on a maximum projection along z in case of 3D data. Recommended when memory is limited but results are generally less good. Default: False."
+          },
+          "registration_function": {
+            "default": "phase_correlation",
+            "title": "Registration Function",
+            "type": "string",
+            "description": "Type of transformation to use for registration. Available functions: - 'phase_correlation' - 'antspy': see ANTsPy documentation for more information. Default: 'phase_correlation'."
+          },
+          "overlap_tolerance": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/DimTuple"
+              }
+            ],
+            "title": "Overlap Tolerance",
+            "description": "Extend overlap regions considered for pairwise registration. Currently, the overlap between tiles as referenced in the metadata is used. To go beyond this, the following options are available: - if 0, the overlap region is the intersection of the tiles. - if > 0, the overlap region is the intersection of the tiles extended by this value in the given spatial dimensions. Default: 0 for all dimensions."
+          },
+          "transform_type": {
+            "default": "translation",
+            "title": "Transform Type",
+            "type": "string",
+            "description": "Type of transformation to use for registration. Available types: - 'translation': translation - 'rigid': rigid body transformation - 'similarity': similarity transformation - 'affine': affine transformation Default: 'translation'."
+          },
+          "pre_registration_pruning_method": {
+            "default": "keep_axis_aligned",
+            "title": "Pre Registration Pruning Method",
+            "type": "string",
+            "description": "Method to use for selecting a subset of all overlapping tiles for pairwise registration. By default, only lower, upper, right and left neighbors are considered. Set this parameter to no_pruning if pairs of tiles which deviate from this pattern need to be registered. Available methods: - None: No pruning, useful when no regular arrangement is present. - 'alternating_pattern': Prune to edges between squares of differering colors in checkerboard pattern. Useful for regular 2D tile arrangements (of both 2D or 3D data). - 'shortest_paths_overlap_weighted': Prune to shortest paths in overlap graph (weighted by overlap). Useful to minimize the number of pairwise registrations. - 'otsu_threshold_on_overlap': Prune to edges with overlap above Otsu threshold. This is useful for regular 2D or 3D grid arrangements, as diagonal edges will be pruned. - 'keep_axis_aligned': Keep only edges that align with tile axes. This is useful for regular grid arrangements and to explicitely prune diagonals, e.g. when other methods fail."
+          },
+          "max_workers": {
+            "default": 4,
+            "title": "Max Workers",
+            "type": "integer",
+            "description": "Maximum number of workers to process blocks in parallel. Should not be more than number of available workers. If set to one, it falls back to sequential processing. Default: 4."
+          },
+          "fusion_chunksize": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/DimTuple"
+              }
+            ],
+            "title": "Fusion Chunksize",
+            "description": "Chunksize for the dimension (Z, Y, X) to use when performing the fusion. It impacts the memory usage and the time to fuse the tiles. It also corresponds to the chunksize of the output zarr. Setting smaller chunks can reduce memory usage but increase the time to fuse the tiles. If None, the chunksize of the raw image is used. Default: None."
+          },
+          "erase_source_image": {
+            "default": false,
+            "title": "Erase Source Image",
+            "type": "boolean",
+            "description": "If `True`, the source image will be erased after stitching. Default: False."
+          }
+        },
+        "required": [
+          "zarr_url",
+          "channel"
+        ],
+        "type": "object",
+        "title": "StitchWithMultiviewStitcher"
+      },
+      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n"
+    },
+    {
+      "name": "Prepare mesoSPIM OME-Zarr",
+      "category": "Conversion",
+      "modality": "lightsheet",
+      "tags": [
+        "mesoSPIM",
+        "OME-Zarr",
+        "Converter"
+      ],
+      "type": "converter_non_parallel",
+      "executable_non_parallel": "tasks/prepare_mesospim_omezarr.py",
+      "meta_non_parallel": {
+        "cpus_per_task": 8,
+        "mem": 16000
+      },
+      "args_schema_non_parallel": {
+        "$defs": {
+          "DimTuple": {
+            "description": "Tuple for the dimensions (Z, Y, X) used to retrieve numerical information per dimension.",
+            "properties": {
+              "z": {
+                "title": "Z",
+                "type": "integer"
+              },
+              "y": {
+                "title": "Y",
+                "type": "integer"
+              },
+              "x": {
+                "title": "X",
+                "type": "integer"
+              }
+            },
+            "title": "DimTuple",
+            "type": "object"
+          }
+        },
+        "additionalProperties": false,
+        "properties": {
+          "zarr_dir": {
+            "title": "Zarr Dir",
+            "type": "string",
+            "description": "Path to the OME-Zarr directory."
+          },
+          "pattern": {
+            "default": "",
+            "title": "Pattern",
+            "type": "string",
+            "description": "Common pattern to identify which OME-Zarr in the dataset directory are to be prepared in case of several OME-Zarr present. Default: \"\"."
+          },
+          "zarr_name": {
+            "title": "Zarr Name",
+            "type": "string",
+            "description": "Name of the OME-Zarr to create/open. If not provided, the name of the dataset directory will be used. If the OME-Zarr already exists, the new image will be appended. The `overwrite` argument handles the overwriting or not of the image if it exists. Default: None."
+          },
+          "channel_color_settings": {
+            "default": "default",
+            "title": "Channel Color Settings",
+            "type": "string",
+            "description": "Keyword identifying the channel color settings among all saved settings. Default: \"default\"."
+          },
+          "num_levels": {
+            "title": "Num Levels",
+            "type": "integer",
+            "description": "Number of pyramid levels (including the full resolution level, so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is recommended to have at least 6 levels. If not provided, the code will use the existing pyramid depth of the OME-Zarr if it is present, otherwise it will estimate the optimal depth based on the size of the image. Default: None. the optimal pyramid depth based on the size of the image. Default: None."
+          },
+          "chunksize": {
+            "allOf": [
+              {
+                "$ref": "#/$defs/DimTuple"
+              }
+            ],
+            "default": {
+              "z": 64,
+              "y": 1024,
+              "x": 1024
+            },
+            "title": "Chunksize",
+            "description": "Chunk size to use for the OME-Zarr image. Smaller chunksizes improve visualisation smoothness but impairs processing efficiency. Default: (64, 1024, 1024)."
+          },
+          "overwrite": {
+            "default": false,
+            "title": "Overwrite",
+            "type": "boolean",
+            "description": "Whether to overwrite OME-Zarr image if it already exists. It will not overwrite the OME-Zarr folder if it already exists. Default: False."
+          }
+        },
+        "required": [
+          "zarr_dir"
+        ],
+        "type": "object",
+        "title": "PrepareMesospimOmezarr"
+      },
+      "docs_info": "## prepare_mesospim_omezarr\nCreate a tiny proxy OME-Zarr-like directory on disk to insure compatibility between analysis pipeline and\nthe OME-Zarr structure output by mesoSPIM.\n"
     }
   ],
   "has_args_schemas": true,

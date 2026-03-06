@@ -2,6 +2,7 @@ import shutil
 from pathlib import Path
 import json
 import typer
+from mesospim_fractal_tasks.settings.settings_manager import get_channel_settings_dir
 
 get_app = typer.Typer()
 set_app = typer.Typer()
@@ -76,7 +77,7 @@ def set_channel_setting(
                 raise ValueError(f"Invalid channel setting: {key}. "
                                  f"Entry '{k}' must be a string.")
     
-    dst = Path(".", "src", "mesospim_fractal_tasks", "settings")
+    dst = get_channel_settings_dir()
 
     target = dst / f"channel_color_{setting_name}.json"
     if target.exists():

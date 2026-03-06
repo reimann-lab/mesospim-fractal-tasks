@@ -17,7 +17,6 @@ import re
 from pathlib import Path
 from typing import Optional, Callable, Any
 import json
-from importlib import resources
 import fractal_tasks_core
 from fractal_tasks_core.ngff.specs import NgffImageMeta
 from fractal_tasks_core.roi import prepare_FOV_ROI_table, prepare_well_ROI_table
@@ -35,6 +34,7 @@ from mesospim_fractal_tasks.utils.zarr_utils import (
     _determine_optimal_contrast, _estimate_pyramid_depth, build_pyramid)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.settings.settings_manager import get_channel_settings_dir
 from mesospim_fractal_tasks import __version__, __commit__
 
 __OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
@@ -61,7 +61,7 @@ def load_channel_colors(
         logger.info(f"Loading channel-specific information from {user_channels_path}.")
     else:
         keyword = user_channels_path
-        settings_dir = resources.files("mesospim_fractal_tasks.settings")
+        settings_dir = get_channel_settings_dir()
         json_files = [file for file in settings_dir.iterdir() if ((file.is_file()) and 
                                                                   (keyword in file.name))]
         if len(json_files) != 1:

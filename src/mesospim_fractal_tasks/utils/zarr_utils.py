@@ -120,9 +120,9 @@ def create_zarr_pyramid(
             fill_value=0,
             write_empty_chunks=False,
         )
-        new_shape = (new_shape[0], 
-                 new_shape[1] // pyramid_dict[str(level)]["coarsening_z"], 
-                 new_shape[2] // pyramid_dict[str(level)]["coarsening_xy"], 
+        new_shape = (new_shape[0],
+                 new_shape[1] // pyramid_dict[str(level)]["coarsening_z"],
+                 new_shape[2] // pyramid_dict[str(level)]["coarsening_xy"],
                  new_shape[3] // pyramid_dict[str(level)]["coarsening_xy"])
 
 def build_pyramid(
@@ -154,11 +154,11 @@ def build_pyramid(
                     f" for channel {channel_name}.")
     else:
         logger.info(f"Building the pyramid of resolution levels for {zarr_path.name}.")
-    
+
     # Compute and write lower-resolution levels
     previous_level = full_res_array
     for level in range(1, len(pyramid_dict)):
-        
+
         if channel_index is not None:
             previous_level = da.from_zarr(str(zarr_path/ str(level-1)))[channel_index:channel_index+1]
         else:
@@ -179,21 +179,23 @@ def build_pyramid(
                 f"coarsening_z={coarsening_z} "
                 f"but previous level has shape {previous_level.shape}"
             )
-        
+
         # Verify if it needs padding
         pad = np.array((
             0,
-            previous_level.shape[0] % coarsening_z, 
-            previous_level.shape[1] % coarsening_xy, 
-            previous_level.shape[2] % coarsening_xy))
-        if pad.sum() > 0:
-            previous_level = da.pad(
-                previous_level, 
-                pad_width=((0,0),(0,pad[1]), (0, pad[2]), (0, pad[3])),
-                mode="edge").rechunk(chunksize)
+            (coarsening_z - previous_level.shape[0] % coarsening_z) % coarsening_z,
+            (coarsening_xy - previous_level.shape[1] % coarsening_xy) % coarsening_xy,
+            (coarsening_xy - previous_level.shape[2] % coarsening_xy) % coarsening_xy))
+
         new_shape = tuple(
             (np.array(previous_level.shape) + pad) //
             np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
+
+        if pad.sum() > 0:
+            previous_level = da.pad(
+                previous_level,
+                pad_width=((0,0),(0,pad[1]), (0, pad[2]), (0, pad[3])),
+                mode="edge").rechunk(chunksize)
 
         # Apply coarsening
         new_level = da.coarsen(
@@ -240,7 +242,7 @@ def build_pyramid(
                         slice(None))
             else:
                 dest_region = source_region
-            
+
             new_level[source_region].to_zarr(
                 zarr.open_array(str(zarr_path / str(level))),
                 compute=True,
@@ -263,7 +265,7 @@ def _determine_optimal_contrast(
         image_path (Path): Path to the image to determine the contrast limits for.
         num_levels (int): Number of pyramid levels.
         channel_index (int): Channel index for which to determine the contrast limits.
-        segment_sample (bool): If should segment sample to compute the intensity 
+        segment_sample (bool): If should segment sample to compute the intensity
             percentiles for the contrast limits.
 
     Returns:
@@ -343,7 +345,7 @@ def _update_omero_channels(
                 logger.info(f"Old value: {channels_attrs[c][key]}")
                 logger.info(f"New value: {value[c]}")
                 channels_attrs[c][key] = value[c]
-    
+
     # Write the updated OME-ZARR metadata
     zarr_group.attrs["omero"]= {"channels": channels_attrs}
 
@@ -357,7 +359,7 @@ def _write_label_metadata(
 ) -> None:
     """
     Write OME-NGFF label metadata for a given label.
-    
+
     Parameters:
         image_group: OME-Zarr group of the image to which the label applies.
         label_name: Name of the label to write metadata for.
@@ -365,7 +367,7 @@ def _write_label_metadata(
         num_levels: Number of pyramid levels to write metadata for.
         analysis_resolution_level: Resolution level to write metadata for.
         overwrite: Whether to overwrite existing metadata.
-    
+
     Returns:
         None
     """
@@ -375,7 +377,7 @@ def _write_label_metadata(
 
     # Delete channel axis
     image_attrs["multiscales"][0]["axes"] = image_attrs["multiscales"][0]["axes"][1:]
-    
+
     # Delete channel scale and keep relevant levels
     datasets = image_attrs["multiscales"][0]["datasets"]
     if num_levels is not None:
@@ -385,13 +387,13 @@ def _write_label_metadata(
     scale = image_attrs["multiscales"][0]["datasets"][0] \
             ["coordinateTransformations"][0]["scale"][1:]
     if analysis_resolution_level is not None:
-        scale = [scale[0], scale[1] * 2**analysis_resolution_level, 
+        scale = [scale[0], scale[1] * 2**analysis_resolution_level,
                  scale[2] * 2**analysis_resolution_level]
     image_attrs["multiscales"][0]["datasets"] = []
     for d in range(nb_datasets):
         image_attrs["multiscales"][0]["datasets"].append(
             {
-                "coordinateTransformations" : [ 
+                "coordinateTransformations" : [
                     {
                         "scale": [scale[0], scale[1] * 2**d, scale[2] * 2**d],
                         "type": "scale"
@@ -400,7 +402,7 @@ def _write_label_metadata(
                 "path": str(d)
             }
         )
-    
+
     # Delete irrelevant info
     if "omero" in image_attrs.keys():
         del image_attrs["omero"]
@@ -408,17 +410,17 @@ def _write_label_metadata(
         del image_attrs["crop_info"]
     if "fractal_tasks" in image_attrs.keys():
         del image_attrs["fractal_tasks"]
-    
+
     # Adapt to the label metadata and write it to each label group
     logger.info(f"Writing OME-NGFF label metadata for {label_name} label.")
-        
+
     # Prepare the OME-Zarr label group (write multiscale + labels metadata)
     label_group = prepare_label_group(
         image_group,
         label_name,
         image_attrs,
         overwrite=overwrite)
-    
+
     # Add label-specific metadata
     label_metadata = {
         "version": "0.4",
@@ -428,7 +430,7 @@ def _write_label_metadata(
     }
     for key in label_info.keys():
         label_metadata[key] = label_info[key]
-        
+
     label_group.attrs["image-label"] = label_metadata
     logger.info(f"OME-NGFF label metadata written for {label_name} label.")
 
@@ -440,7 +442,7 @@ def _store_label_to_zarr(
 ) -> None:
     """
     Store a label array to a zarr array.
-    
+
     Parameters:
         label_path: Path to the label group to build the pyramid for.
         label_mask: 3D integer array of shape (X,Y,Z) with label information.
@@ -458,7 +460,7 @@ def _store_label_to_zarr(
             raise ValueError
 
     logger.info(f"Saving label mask at to {label_path} with chunk size {chunksize}")
-    
+
     logger.info(f"Opening OME-Zarr array of shape {shape}.")
     mask_zarr = zarr.create(
             shape=shape,
@@ -485,7 +487,7 @@ def _build_label_pyramid(
 ) -> None:
     """
     Build a pyramid of multiscale labels.
-    
+
     Parameters:
         image_path: Path to the image group the label is associated with.
         label_path: Path to the label group to build the pyramid for.
@@ -501,17 +503,17 @@ def _build_label_pyramid(
         coarsening_xy = 2
     else:
         coarsening_xy = image_meta.coarsening_xy
-    logger.info(f"Building multi-resolution pyramid of {num_levels} levels for label at" 
+    logger.info(f"Building multi-resolution pyramid of {num_levels} levels for label at"
                 f" {label_path}")
-    
+
     # Create the zarr array for the label mask at each resolution level
     for level in range(num_levels):
-        
+
         logger.info(f"Building level {level+1}/{num_levels}")
         image_arr = da.from_zarr(f"{image_path}/{level}")
         shape = image_arr.shape[1:]
         chunks = image_arr.chunksize[1:]
-        
+
         logger.info(f"Opening OME-Zarr array of shape {shape}.")
         mask_zarr = zarr.create(
                 shape=shape,
@@ -523,13 +525,13 @@ def _build_label_pyramid(
                 fill_value=0,
                 write_empty_chunks=False,
             )
-        
+
         # Correct the size of the mask array if necessary and save to zarr
         correction_factor = analysis_resolution_level-level
-        block_size=(1, coarsening_xy**abs(correction_factor), 
+        block_size=(1, coarsening_xy**abs(correction_factor),
                     coarsening_xy**abs(correction_factor))
         if correction_factor > 0:
-            #resized_mask = _check_array_size(label_mask, shape, 
+            #resized_mask = _check_array_size(label_mask, shape,
             #                                 block_size[1])
             label_dask = da.from_array(label_mask, chunks=chunks)
             resized_dask = label_dask.map_blocks(
@@ -542,8 +544,8 @@ def _build_label_pyramid(
             da.to_zarr(resized_dask[:shape[0], :shape[1], :shape[2]], mask_zarr)
         elif correction_factor < 0:
             resized_mask = block_reduce(
-                label_mask, 
-                block_size=block_size, 
+                label_mask,
+                block_size=block_size,
                 func=np.max
             )
             resized_mask = _check_array_size(resized_mask, shape)#, 1)
@@ -559,11 +561,11 @@ def _downscale_chunk(
 ) -> np.ndarray:
     """
     Downscale a chunk of a label array (categorical data).
-    
+
     Parameters:
         chunk: Chunk of the label array to be downscaled.
         block_size: Block size of the label array.
-    
+
     Returns:
         Downscaled chunk.
     """
@@ -575,11 +577,11 @@ def _upscale_chunk(
 ) -> np.ndarray:
     """
     Upscale a chunk of a label array (categorical data).
-    
+
     Parameters:
         chunk: Chunk of the label array to be upscaled.
         block_size: Block size of the label array.
-    
+
     Returns:
         Upscaled chunk.
     """
@@ -593,12 +595,12 @@ def _check_array_size(
     """
     Check if the array has the correct size after upscaling. Note: it is assumed
     that the array is at least 3D and only the last two dimensions are checked.
-    
+
     Parameters:
         array: Numpy array to be checked (3D).
         shape: Desired shape of the dask array (3D).
         upscale_factor: Size of the blocks used to upscale the array.
-    
+
     Returns:
         Numpy array with the correct size.
     """
@@ -608,12 +610,12 @@ def _check_array_size(
     if len(shape) > 3:
         shape = shape[1:]
 
-    array_shape = (array[:,0,0].compute().size, 
+    array_shape = (array[:,0,0].compute().size,
                         array[0,:,0].compute().size,
                         array[0,0,:].compute().size)
     if array_shape[0] != shape[0]:
         raise ValueError("Array has inconsistent number of Z frames.")
-    
+
 
 
     array_shape = np.array(array_shape)
@@ -623,7 +625,7 @@ def _check_array_size(
     if np.any(diff > 0):
         pad_width = ((0,0),   # z axis, no padding
                      (0, int(max(np.ceil(diff[1]), 0))),
-                     (0, int(max(np.ceil(diff[2]), 0)))) 
+                     (0, int(max(np.ceil(diff[2]), 0))))
                      #(0, int(max(np.ceil(diff[1] / 2), 0))),   # y axis padding
                      #(0, int(max(np.ceil(diff[2] / 2), 0))))  # x axis padding
         new_array = np.pad(array, pad_width=pad_width, mode="edge")

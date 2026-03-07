@@ -139,7 +139,7 @@ def create_zarr_pyramid(
         new_shape = tuple(
             (np.array(new_shape) + pad) //
             np.array([1, coarsening_z, coarsening_xy, coarsening_xy]))
-        
+
 def _build_single_level(
     zarr_path: Path,
     level: int,
@@ -158,6 +158,8 @@ def _build_single_level(
         chunksize: Chunk shape to use for the new level.
     """
     src_path = zarr_path / str(level - 1)
+
+    logger.info(f"Building level {level}/{len(pyramid_dict)-1}.")
 
     if channel_index is not None:
         previous_level = da.from_zarr(str(src_path))[channel_index:channel_index+1]

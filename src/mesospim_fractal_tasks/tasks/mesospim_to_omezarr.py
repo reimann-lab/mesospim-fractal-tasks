@@ -17,7 +17,6 @@ import re
 from pathlib import Path
 from typing import Optional, Callable, Any
 import json
-from importlib import resources
 import fractal_tasks_core
 from fractal_tasks_core.ngff.specs import NgffImageMeta
 from fractal_tasks_core.roi import prepare_FOV_ROI_table, prepare_well_ROI_table
@@ -35,9 +34,10 @@ from mesospim_fractal_tasks.utils.zarr_utils import (
     _determine_optimal_contrast, _estimate_pyramid_depth, build_pyramid)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks.utils.models import DimTuple
+from mesospim_fractal_tasks.settings.settings_manager import get_channel_settings_dir
 from mesospim_fractal_tasks import __version__, __commit__
 
-__OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__ 
+__OME_NGFF_VERSION__ =  fractal_tasks_core.__OME_NGFF_VERSION__
 
 import logging
 logger = logging.getLogger(__name__)
@@ -50,8 +50,8 @@ def load_channel_colors(
     Load the channel colors from a JSON file.
 
     Parameters:
-        user_channels_path (str): Path to the JSON file or keyword identifying the JSON 
-            file containing the channel colors information. 
+        user_channels_path (str): Path to the JSON file or keyword identifying the JSON
+            file containing the channel colors information.
 
     Returns:
         dict: Dictionary containing the channel colors.
@@ -61,8 +61,8 @@ def load_channel_colors(
         logger.info(f"Loading channel-specific information from {user_channels_path}.")
     else:
         keyword = user_channels_path
-        settings_dir = resources.files("mesospim_fractal_tasks.settings")
-        json_files = [file for file in settings_dir.iterdir() if ((file.is_file()) and 
+        settings_dir = get_channel_settings_dir()
+        json_files = [file for file in settings_dir.iterdir() if ((file.is_file()) and
                                                                   (keyword in file.name))]
         if len(json_files) != 1:
             logger.error(f"No JSON file found for the given parameter {user_channels_path}.")
@@ -85,14 +85,14 @@ def write_ome_zarr_metadata(
     """
     Write OME-Zarr metadata to the provided Zarr group.
 
-    Parameters: 
+    Parameters:
         zarr_group (zarr.Group): Zarr group to write metadata into.
         meta_df (pd.DataFrame): DataFrame containing metadata information.
         contrast_limits (tuple): Contrast window for all channels.
         num_levels (int): Number of pyramid levels (no pyramid if num_levels=1).
         coarsening_factor (int): Coarsening factor for the pyramid.
         input_param (dict[str, Any]): Input parameters for the task.
-        user_channels_path (str): Path to the JSON file or keyword identifying the JSON 
+        user_channels_path (str): Path to the JSON file or keyword identifying the JSON
             file containing the channel colors information.
         is_proxy (bool): Whether the image is a proxy image.
     Returns:
@@ -102,9 +102,9 @@ def write_ome_zarr_metadata(
     logger.info(f"Writing NGFF compliant metadata for {zarr_group.name }")
 
     channel_mapping = load_channel_colors(user_channels_path)
-    
+
     try:
-        
+
         # Prepare the dataset info with scale transformations
         logger.info("Preparing multiscales metadata...")
         dataset = [
@@ -115,7 +115,7 @@ def write_ome_zarr_metadata(
                     "type": "scale",
                     "scale": [
                         1.0,
-                        pyramid_dict[level]["scale"][0],   
+                        pyramid_dict[level]["scale"][0],
                         pyramid_dict[level]["scale"][1],
                         pyramid_dict[level]["scale"][2]
                         ]
@@ -191,7 +191,7 @@ def write_ome_zarr_metadata(
                 "zoom": str(channel_df.loc[0, "zoom"]),
                 "laser_intensity": str(channel_df.loc[0, "intensity"])
             })
-        
+
         # Write acquisition metadata
         zarr_group.attrs["acquisition_metadata"] = {
             "channels": acquisition_info
@@ -221,7 +221,7 @@ def check_n_pixels(
     meta_df: pd.DataFrame
 ) -> None:
     """
-    Check if there is a positive overlap between tiles given the number of pixels 
+    Check if there is a positive overlap between tiles given the number of pixels
     in the x and y directions referenced in the metadata.
     If swapping the x and y pixel sizes leads to positive overlap, it is corrected.
 
@@ -290,15 +290,15 @@ def read_metadata(
 
     logger.info(f"Reading metadata from {metadata_path.name}")
 
-    columns = ["laser", "intensity", "zoom", "filter", "shutter", "x_scale", "y_scale", 
+    columns = ["laser", "intensity", "zoom", "filter", "shutter", "x_scale", "y_scale",
                 "z_scale", "x_pos", "y_pos",
                 "x_n_pixels", "y_n_pixels", "z_n_pixels", "ignore"]
     meta_df = pd.DataFrame(columns=columns)
 
     # Define important keys present in the metadata
-    keys = ["laser", "intensity", "zoom", "filter", "shutter", "pixelsize", "z_stepsize", 
+    keys = ["laser", "intensity", "zoom", "filter", "shutter", "pixelsize", "z_stepsize",
             "z_planes", "x_pixels", "y_pixels", "x_pos", "y_pos"]
-    
+
     # Initialize a row counter (= number of files referenced in the metadata
     nb_rows = -1
     with open(metadata_path, "r") as f:
@@ -333,25 +333,25 @@ def read_metadata(
                     meta_df.loc[nb_rows, key] = contents[1]
     if len(meta_df) == 0:
         raise ValueError("No metadata found in the provided file.")
-    
+
     meta_df.rename(columns={"laser": "channel"}, inplace=True)
 
     # Correct dtypes
-    meta_df[["intensity", 
-            "x_pos", 
+    meta_df[["intensity",
+            "x_pos",
             "y_pos",
-            "x_scale", 
-            "y_scale", 
-            "z_scale"]] = meta_df[["intensity", 
-                                    "x_pos", 
+            "x_scale",
+            "y_scale",
+            "z_scale"]] = meta_df[["intensity",
+                                    "x_pos",
                                     "y_pos",
-                                    "x_scale", 
-                                    "y_scale", 
+                                    "x_scale",
+                                    "y_scale",
                                     "z_scale"]].astype("float")
-    meta_df[["x_n_pixels", 
-            "y_n_pixels", 
-            "z_n_pixels"]] = meta_df[["x_n_pixels", 
-                                    "y_n_pixels", 
+    meta_df[["x_n_pixels",
+            "y_n_pixels",
+            "z_n_pixels"]] = meta_df[["x_n_pixels",
+                                    "y_n_pixels",
                                     "z_n_pixels"]].astype("int")
     if meta_df.loc[0, "intensity"] > 1: # type: ignore
         meta_df["intensity"] = meta_df["intensity"] / 100
@@ -380,7 +380,7 @@ def read_metadata(
             f"Metadata contains missing values in required fields: {nan_cols}\n"
             f"Problematic rows:\n{rows}"
         )
-    
+
     check_n_pixels(meta_df)
 
     return meta_df
@@ -418,13 +418,13 @@ def convert_raw(
             if channel not in concat_filenames:
                 raise ValueError("No raw file found that correspond to expected "
                                     f"channel {channel}.")
-    zarr_shape = [len(raw_image_paths), meta_df.loc[0,"z_n_pixels"], meta_df.loc[0, "y_n_pixels"], 
+    zarr_shape = [len(raw_image_paths), meta_df.loc[0,"z_n_pixels"], meta_df.loc[0, "y_n_pixels"],
                   meta_df.loc[0, "x_n_pixels"]]
     logger.info(f"Creating zarr dataset of size {zarr_shape[0]} x "
                 f"{zarr_shape[1]} x {zarr_shape[2]} x "
                 f"{zarr_shape[3]} to store raw files")
     logger.info(f"Chunk size set to: {chunk_sizes}")
-    
+
     image_arr = zarr.create(
         shape=tuple(zarr_shape),
         chunks=(1,) + tuple(chunk_sizes),
@@ -435,7 +435,7 @@ def convert_raw(
         fill_value=0,
         write_empty_chunks=False,
     )
-    
+
     for i, channel in enumerate(meta_df["channel"]):
         for file in raw_image_paths:
             if channel in file.stem:
@@ -515,11 +515,11 @@ def convert_tiff(
                 {meta_df.loc[0,'z_n_pixels']} x {meta_df.loc[0, 'y_n_pixels']} x \
                 {meta_df.loc[0, 'x_n_pixels']} to store tiff files")
     logger.info(f"Chunk size set to: {chunk_sizes}")
-    
+
     image_arr = zarr.create(
-        shape=(len(raw_image_paths), 
-               meta_df.loc[0,"z_n_pixels"], 
-               meta_df.loc[0, "y_n_pixels"], 
+        shape=(len(raw_image_paths),
+               meta_df.loc[0,"z_n_pixels"],
+               meta_df.loc[0, "y_n_pixels"],
                meta_df.loc[0, "x_n_pixels"]), # type: ignore
         chunks=(1,) + tuple(chunk_sizes),
         dtype=np.uint16,
@@ -529,7 +529,7 @@ def convert_tiff(
         fill_value=0,
         write_empty_chunks=False,
     )
-    
+
     for i, channel in enumerate(meta_df["channel"]):
         for file in raw_image_paths:
             if channel in file.stem:
@@ -578,7 +578,7 @@ def convert_h5_multitile(
     chunk_sizes: list[int]
 ) -> None:
     """
-    Convert tiles stored in an h5 file that matches the pattern in provided directory 
+    Convert tiles stored in an h5 file that matches the pattern in provided directory
     to zarr.
 
     Parameters:
@@ -612,7 +612,7 @@ def convert_h5_multitile(
     z_pixels = meta_df.loc[0, "z_n_pixels"]
     y_pixels = meta_df.loc[0, "y_n_pixels"]
     x_pixels = meta_df.loc[0, "x_n_pixels"]
-    final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0] 
+    final_y_pixels = meta_df[~meta_df["ignore"]].groupby("y_pos")["y_n_pixels"].unique().sum()[0]
     final_x_pixels = meta_df[~meta_df["ignore"]].groupby("x_pos")["x_n_pixels"].unique().sum()[0]
 
     logger.info(f"Chunk size set to: {chunk_sizes}")
@@ -635,7 +635,7 @@ def convert_h5_multitile(
         channel_df = meta_df[meta_df["channel"] == channel]
         channel_df.index = tile_names[nb_tiles*c:nb_tiles*(c+1)]
         channel_df = channel_df[~channel_df["ignore"]]
-        channel_df = channel_df.sort_values(by=["x_pos", "y_pos"], 
+        channel_df = channel_df.sort_values(by=["x_pos", "y_pos"],
                                             ascending=[False, False])
 
         y_counter = 0
@@ -650,21 +650,21 @@ def convert_h5_multitile(
                     chunks = tuple(chunk_sizes)
                     z_plane = da.from_array(f[tile_name], chunks=chunks)
                     z_plane = z_plane[None, :, :, :]
-                    region = (slice(c, c+1), 
-                              slice(None), 
-                              slice(y_counter, y_counter + y_pixels), 
+                    region = (slice(c, c+1),
+                              slice(None),
+                              slice(y_counter, y_counter + y_pixels),
                               slice(x_counter, x_counter + x_pixels))
                     z_plane.to_zarr(image_arr, region=region, overwrite=True)
-                logger.info(f"Converted {tile_name} to zarr") 
-                
+                logger.info(f"Converted {tile_name} to zarr")
+
                 if c == 0:
                     x_pos = abs(channel_df.iloc[t]["x_pos"] - channel_df.iloc[0]["x_pos"])
                     y_pos = abs(channel_df.iloc[t]["y_pos"] - channel_df.iloc[0]["y_pos"])
                     roi_df.loc[t, "z_micrometer"] = 0
-                    roi_df.loc[t, "y_micrometer"] = y_counter * y_scale 
-                    roi_df.loc[t, "x_micrometer"] = x_counter * x_scale 
-                    roi_df.loc[t, "y_micrometer_original"] = y_pos 
-                    roi_df.loc[t, "x_micrometer_original"] = x_pos 
+                    roi_df.loc[t, "y_micrometer"] = y_counter * y_scale
+                    roi_df.loc[t, "x_micrometer"] = x_counter * x_scale
+                    roi_df.loc[t, "y_micrometer_original"] = y_pos
+                    roi_df.loc[t, "x_micrometer_original"] = x_pos
                     roi_df.loc[t, "len_z_micrometer"] = z_pixels * z_scale
                     roi_df.loc[t, "len_y_micrometer"] = y_pixels * y_scale
                     roi_df.loc[t, "len_x_micrometer"] = x_pixels * x_scale
@@ -739,8 +739,8 @@ def find_metadata_file(
     """
     Searches the zarr directory for a metadata file.
 
-    First it searches for a unique metadata `_meta.txt` file using the provided pattern and extension. 
-    If no unique metadata file is found, it searches for a list of metadata `_meta.txt` files matching the 
+    First it searches for a unique metadata `_meta.txt` file using the provided pattern and extension.
+    If no unique metadata file is found, it searches for a list of metadata `_meta.txt` files matching the
     pattern and the extension. Finally, it searches for a xml file matching the pattern and extension.
 
     Parameters:
@@ -754,7 +754,7 @@ def find_metadata_file(
     # Look zarr_dir for metadata files matching raw image file
     assert len(raw_image_paths) > 0
     common_name = raw_image_paths[0].stem.split("_Mag")[0]
-    
+
     metadata_paths = []
     for path in Path(zarr_dir).glob(f"{common_name}*.{extension}_meta.txt"):
         metadata_paths.append(path)
@@ -766,7 +766,7 @@ def find_metadata_file(
         logger.warning(f"Unique metadata file for raw image filename "
                         f"\"{common_name}\" not found in {zarr_dir}."
                         f"Searching for a list of metadata files instead.")
-        
+
         metadata_paths = []
         metadata_paths = [file for file in Path(zarr_dir).glob(f"{common_name}*{extension}*_meta.txt") \
             if file.is_file()]
@@ -786,7 +786,7 @@ def find_metadata_file(
                     for i in range(len(tile_map)):
                         if i not in tile_map:
                             logger.error(f"Metadata file cannot be found for tile {i} in zarr dir")
-                            raise FileNotFoundError 
+                            raise FileNotFoundError
                         with open(tile_map[i], "r") as f_read:
                             f_write.write(f_read.read())
                 else:
@@ -799,22 +799,22 @@ def find_metadata_file(
     return metadata_path
 
 def find_raw_image_files(
-    zarr_dir: str, 
+    zarr_dir: str,
     pattern: str,
     extension: str
 ) -> list[Path]:
     """
     Searches the zarr directory for a raw image file.
 
-    First it searches for a unique raw image file using the provided pattern and extension. 
-    If no unique raw image file is found, it searches for a list of raw image files matching the 
+    First it searches for a unique raw image file using the provided pattern and extension.
+    If no unique raw image file is found, it searches for a list of raw image files matching the
     pattern and the extension.
 
     Parameters:
         zarr_dir (str): Path of the directory containing the raw image files.
         extension (str): File extension of the raw image files.
-        pattern (str): Common pattern to identify which files in the dataset directory 
-            are to be converted (for example: if the files are image_name1.tiff, 
+        pattern (str): Common pattern to identify which files in the dataset directory
+            are to be converted (for example: if the files are image_name1.tiff,
             image_name2.tiff, ... then pattern = image_name). Default: "".
 
     Returns:
@@ -822,7 +822,7 @@ def find_raw_image_files(
     """
     if extension not in ("tiff", "tif", "raw", "h5"):
         raise ValueError(f"Unsupported extension: {extension}. Must be either 'tiff', 'tif', 'raw' or 'h5'.")
-    
+
     zarr_dir = Path(zarr_dir)
     if extension == "tiff" or extension == "tif":
         extensions = ("tif", "tiff")
@@ -865,26 +865,26 @@ def mesospim_to_omezarr(
     Convert mesoSPIM data (TIFFs or H5) to an OME-Zarr.
 
     Parameters:
-        zarr_dir (str): Path of the directory where the new OME-ZARR will be created. 
+        zarr_dir (str): Path of the directory where the new OME-ZARR will be created.
             (standard argument for Fractal tasks, managed by Fractal server).
-        pattern (str): Common pattern to identify which files in the dataset directory 
-            are to be converted (for example: if the files are image_name1.tiff, 
+        pattern (str): Common pattern to identify which files in the dataset directory
+            are to be converted (for example: if the files are image_name1.tiff,
             image_name2.tiff, ... then pattern = image_name). Default: "".
-        extension (str): File extension of the files to convert (currently support TIFF, 
+        extension (str): File extension of the files to convert (currently support TIFF,
             raw and H5 format). Default: "h5".
         zarr_name (Optional[str]): Name of the OME-Zarr to create/open. If not provided,
             the name of the dataset directory will be used. If the OME-Zarr already
             exists, the new image will be appended. The `overwrite` argument handles the
             overwriting or not of the image if it exists. Default: None.
-        image_name (Optional[str]): Name of the new image to be created. 
+        image_name (Optional[str]): Name of the new image to be created.
             Default: 'raw_image'.
         metadata_file (Optional[str]): Name of the metadata file. It is expected to be
             in the same folder as the acquisition files. Note: if not provided,
             a _meta.txt will be searched using the provided pattern. Default: None.
         channel_color_settings: Keyword identifying the channel color settings
             among all saved settings. Default: "default".
-        num_levels (int): Number of pyramid levels (including the full resolution level, 
-            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is 
+        num_levels (int): Number of pyramid levels (including the full resolution level,
+            so with no extra pyramid, the number of levels is 1). For a 1Tb dataset, it is
             recommended to have at least 6 levels. If not provided, the code will estimate
             the optimal pyramid depth based on the size of the image. Default: None.
         chunksize: Chunk size to use for the OME-Zarr image. Smaller chunksizes improve
@@ -914,7 +914,7 @@ def mesospim_to_omezarr(
     # Create the OME-ZARR
     logger.info(f"Opening OME-ZARR: {zarr_path.name}")
     zarr_group = zarr.open_group(zarr_path, mode="a")
-    
+
     # Open image group
     if image_name is None:
         image_name = "raw_image"
@@ -932,7 +932,7 @@ def mesospim_to_omezarr(
             raise FileNotFoundError
     else:
         metadata_path = find_metadata_file(zarr_dir, raw_image_paths, extension=extension)
-    
+
     # Convert files based on file extension
     convert_fn = dispatcher(extension)
     meta_df = read_metadata(metadata_path, exclusion_list=[]) # exclusion list for compatibility with old version
@@ -968,10 +968,10 @@ def mesospim_to_omezarr(
         meta_df=meta_df,
         pyramid_dict=pyramid_dict,
         contrast_limits=contrast_limits,
-        input_param=dict(pattern=pattern, 
-                         extension=extension, 
+        input_param=dict(pattern=pattern,
+                         extension=extension,
                          metadata_file=metadata_file,
-                         source_file=source_file_name, 
+                         source_file=source_file_name,
                          channel_color_settings=channel_color_settings),
         user_channels_path=channel_color_settings
     )
@@ -994,6 +994,6 @@ if __name__ == "__main__":
     from fractal_task_tools.task_wrapper import run_fractal_task
 
     run_fractal_task(
-        task_function=mesospim_to_omezarr, 
+        task_function=mesospim_to_omezarr,
         logger_name=logger.name,
         )

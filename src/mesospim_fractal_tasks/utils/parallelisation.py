@@ -19,12 +19,12 @@ def _set_dask_cluster(
 ) -> LocalCluster:
     """
     Set up a dask cluster for distributed computing.
-    
+
     Returns:
         Dask cluster.
     """
 
-    
+
     cpus = os.environ.get("SLURM_CPUS_PER_TASK", None)
     if cpus is None:
         cpus = os.cpu_count()
@@ -89,7 +89,7 @@ def correct_per_channel(
 
             corrected_FOV = correct_func(image_array[region], i_ROI,
                                         **correct_func_kwargs)
-            
+
             # Write to disk
             corrected_FOV.to_zarr(
                 url=new_image_array,

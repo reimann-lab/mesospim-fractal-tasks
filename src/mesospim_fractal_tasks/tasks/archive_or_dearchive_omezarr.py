@@ -10,7 +10,7 @@ os.environ["NUMBA_NUM_THREADS"] = "1"
 import shutil
 import tarfile
 import copy
-from typing import Iterable
+from typing import Iterable, Optional
 
 import numcodecs
 from numcodecs import Blosc
@@ -246,24 +246,26 @@ def copy_array_verbatim(src_arr: zarr.Array, dst_parent: zarr.Group, name: str) 
         overwrite=True,
     )
     dst_arr.attrs.update(dict(src_arr.attrs))
-
-    src_arr = da.from_zarr(src_arr)
     
     # Copy without changing chunks
-    if len(dst_arr.shape) == 3:
-        z_idx = 0
+    if "tables" in str(dst_parent.name):
+        dst_arr[:] = src_arr[:]
     else:
-        z_idx = 1
-    z_chunk = dst_arr.chunks[z_idx]
-    z_end = dst_arr.shape[z_idx]
-    for z in range(0, z_end, z_chunk):
-        region = (
-            slice(None),
-            slice(z, z+z_chunk),
-            slice(None),
-            slice(None))
-        src_arr[region].to_zarr(dst_arr, region=region, compute=True)
-    #dst_arr[:] = src_arr[:]
+        src_arr = da.from_zarr(src_arr)
+        if len(dst_arr.shape) == 4:
+            z_idx = 1
+        else:
+            z_idx = 0
+        z_chunk = dst_arr.chunks[z_idx]
+        z_end = dst_arr.shape[z_idx]
+        for z in range(0, z_end, z_chunk):
+            region = (
+                slice(None),
+                slice(z, z+z_chunk),
+                slice(None),
+                slice(None))
+            region = region[abs(z_idx-1):]
+            src_arr[region].to_zarr(dst_arr, region=region, compute=True)
     return dst_arr
 
 
@@ -307,6 +309,7 @@ def recompress_array(
             slice(z, z+z_chunk),
             slice(None),
             slice(None))
+        region = region[abs(z_idx-1):]
         src_arr[region].to_zarr(dst_arr, region=region, compute=True)
     return dst_arr
 
@@ -433,9 +436,10 @@ def recreate_hierarchy_and_copy(
 def archive_or_dearchive_omezarr(
     *,
     zarr_url: str,
-    compressor_name: str = "zstd",
-    compression_level: int = 9,
+    compressor_name: Optional[str] = None,
+    compression_level: Optional[int] = None,
     archive: bool = True,
+    output_preview: bool = True,
     keep_tar_archive: bool = True,
     overwrite: bool = False,
 ) -> None:
@@ -444,16 +448,22 @@ def archive_or_dearchive_omezarr(
     otherwise, dearchive an OME-Zarr saved in a tar archive.
 
     Parameters:
-        zarr_url: Path to any image of the OME-Zarr to archive. The full OME-Zarr folder
-            containing the image will be archived.
+        zarr_url: If archiving, it requires the path to any image of the OME-Zarr to archive. 
+            The full OME-Zarr folder containing the image will be archived. If unarchiving, it requires
+            the path to the TAR archive file containing the OME-Zarr folder you wish to unarchive.
         compressor_name: Compressor to use for the archived OME-Zarr. Default: "zstd".
         compression_level: Compression level to use for the archived OME-Zarr. Default: 9.
         archive: If True, archives the OME-Zarr. If False, dearchives the OME-Zarr. In dearchiving,
             the zarr_url parameter is expected to be a tar archive with an OME-Zarr folder in it.
             Default: True.
+        output_preview: If True, creates a downsampled version of the OME-Zarr folder called 
+            `preview`. Default: True.
         keep_tar_archive: In dearchinving mode, if True, keeps the tar archive 
             after dearchiving. Default: True.
-        overwrite: If True, overwrites the archived OME-Zarr if it already exists.
+        overwrite: If True, it will overwrite any existing files. In archiving mode, it will overwrite
+            the compressed OME-Zarr and/or the TAR file if it already exists. In unarchiving mode, it will 
+            overwrite the extracted uncompressed OME-Zarr if it already exists in the parent directory 
+            of the TAR file. Default: False.
 
     Returns
         None
@@ -468,6 +478,11 @@ def archive_or_dearchive_omezarr(
 
         zarr_path = zarr_path.parent
         archive_path = Path(zarr_path.parent, zarr_path.stem + "_archive.zarr")
+
+        if compressor_name is None:
+            compressor_name = "zstd"
+        if compression_level is None:
+            compression_level = 9
         try:
             compressor = Blosc(
                 cname=compressor_name,
@@ -490,26 +505,28 @@ def archive_or_dearchive_omezarr(
             client = Client(cluster)
             client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
 
-            #rewrite_omezarr_images_only(
-            #    src_path=zarr_path,
-            #    dst_path=archive_path,
-            #    image_compressor=compressor,
-            #    overwrite=overwrite,
-            #)
-
-            preview_path = Path(zarr_path.parent / (f"{zarr_path.stem}"+'_preview.zarr'))
-            create_preview_from_omezarr(
+            rewrite_omezarr_images_only(
                 src_path=zarr_path,
-                preview_path=preview_path,
+                dst_path=archive_path,
+                image_compressor=compressor,
                 overwrite=overwrite,
             )
 
+            if output_preview:
+                preview_path = Path(zarr_path.parent / (f"{zarr_path.stem}"+'_preview.zarr'))
+                create_preview_from_omezarr(
+                    src_path=zarr_path,
+                    preview_path=preview_path,
+                    overwrite=overwrite,
+                )
+
             tar_path = Path(zarr_path.parent / (f"{archive_path.name}"+'.tar'))
-            if tar_path.exists():
-                shutil.rm(tar_path)
+            if tar_path.exists() and overwrite:
+                tar_path.unlink()
             
             tar_directory(archive_path, tar_path)
             logger.info(f"TAR archive file written to: {tar_path}")
+            #shutil.rmtree(archive_path)
 
         finally:
             if client is not None:
@@ -526,9 +543,26 @@ def archive_or_dearchive_omezarr(
 
     else:
         logger.info("Dearchiving OME-Zarr...")
-        extract_dir = Path(zarr_path.parent, "archive") 
-        restored_zarr_path = Path(zarr_path.stem.replace("_archive", ""))
+        extract_dir = Path(zarr_path.parent, "archive")
+
+        if extract_dir.exists():
+            logger.info(f"Extraction directory already exists: {extract_dir.name}")
+            if overwrite:
+                logger.info(f"Overwriting existing extraction directory.")
+                shutil.rmtree(extract_dir)
+            else:
+                raise FileExistsError
+
+        restored_zarr_path = Path(zarr_path.parent, zarr_path.stem.replace("_archive", ""))
         assert restored_zarr_path.suffix == ".zarr"
+        if restored_zarr_path.exists():
+            logger.info(f"OME-Zarr contained in the archive {zarr_path.name} already "
+                        f"exists in directory: {restored_zarr_path.parent.name}/{restored_zarr_path.name}")
+            if overwrite:
+                logger.info(f"Overwriting existing OME-Zarr.")
+                shutil.rmtree(restored_zarr_path)
+            else:
+                raise FileExistsError
 
         extracted_archived_zarr = untar_to_directory(
             tar_path=zarr_path,
@@ -537,6 +571,10 @@ def archive_or_dearchive_omezarr(
 
         logger.info(f"Extracted archived zarr to: {extract_dir.name}/{extracted_archived_zarr.name}")
 
+        if compressor_name is None:
+            compressor_name = "lz4"
+        if compression_level is None:
+            compression_level = 5
         try:
             compressor = Blosc(
                 cname=compressor_name,
@@ -553,10 +591,11 @@ def archive_or_dearchive_omezarr(
             overwrite=overwrite,
             image_compressor=compressor,
         )
+        shutil.rmtree(extract_dir)
         logger.info(f"Restored working zarr written to: {restored_zarr_path.parent.name}/{restored_zarr_path.name}")
 
         if not keep_tar_archive:
-            extract_dir.rmdir()
+            zarr_path.unlink()
             logger.info(f"Removed TAR file {zarr_path.name} and archive directory.")
 
 

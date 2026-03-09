@@ -333,9 +333,10 @@ def crop_regions_of_interest(
             it in the OME-Zarr folder of the image to crop (e.g. if cropping zarr_dir/raw_image,
             the table must be in the `zarr_dir` folder). If not provided, 
             the default `roi_coords` is used.
-        num_levels: Number of pyramid levels to generate for the ROI image (including 
-            the full resolution image). If not provided, the same multi-resolution
-            pyramid size as the original image will be used. Default: None.
+        num_levels (int): Number of pyramid levels (including the full resolution level,
+            so with no extra pyramid, the number of levels is 1). If not provided, 
+            the code will estimate the optimal pyramid depth based on the size of 
+            the image. Default: None.
         chunksize: Chunk size to use for the new ROI image(s). If None, the chunksize
             of the original image will be used. Default: None.
         overwrite: Whether to overwrite existing ROI images if they already exist 

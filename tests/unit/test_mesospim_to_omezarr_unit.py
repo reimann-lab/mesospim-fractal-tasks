@@ -462,8 +462,9 @@ def test_load_channel_colors_via_keyword(
     mocker, 
     tmp_dataset
 ):
-    mocker.patch("importlib.resources.files", return_value=tmp_dataset
-    )
+    mocker.patch("mesospim_fractal_tasks.tasks.mesospim_to_omezarr.get_channel_settings_dir", 
+                 return_value=tmp_dataset)
+    
 
     json_file = tmp_dataset / "default_colors.json"
     json_file.write_text('{"0": {"label": "CH0"}}')

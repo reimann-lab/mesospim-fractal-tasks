@@ -19,12 +19,12 @@ def _set_dask_cluster(
 ) -> LocalCluster:
     """
     Set up a dask cluster for distributed computing.
-    
+
     Returns:
         Dask cluster.
     """
 
-    
+
     cpus = os.environ.get("SLURM_CPUS_PER_TASK", None)
     if cpus is None:
         cpus = os.cpu_count()
@@ -62,6 +62,7 @@ def correct_per_channel(
     else:
         image_array = da.from_zarr(zarr_path / "0")
     new_image_array = zarr.open_array(new_zarr_path / "0")
+    z_chunk = new_image_array.chunks[1]
 
     # Get FOVs coordinates
     FOV_ROI_table = ad.read_zarr(Path(zarr_path, "tables", "FOV_ROI_table"))
@@ -77,21 +78,23 @@ def correct_per_channel(
     logger.info(f"Starting illumination correction for {channel_name}...")
     for i_ROI, idxs_ROI in enumerate(indices):
         s_z, e_z, s_y, e_y, s_x, e_x = idxs_ROI[:]
-        region = (
-            slice(channel_index, channel_index + 1),
-            slice(s_z, e_z),
-            slice(s_y, e_y),
-            slice(s_x, e_x),
-        )
 
-        corrected_FOV = correct_func(image_array[region], i_ROI,
-                                     **correct_func_kwargs)
-        
-        # Write to disk
-        corrected_FOV.to_zarr(
-            url=new_image_array,
-            region=region,
-            compute=True,
-        )
-        logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
+        for z in range(s_z, e_z, z_chunk):
+            region = (
+                slice(channel_index, channel_index + 1),
+                slice(z, z + z_chunk),
+                slice(s_y, e_y),
+                slice(s_x, e_x),
+            )
+
+            corrected_FOV = correct_func(image_array[region], i_ROI,
+                                        **correct_func_kwargs)
+
+            # Write to disk
+            corrected_FOV.to_zarr(
+                url=new_image_array,
+                region=region,
+                compute=True,
+            )
+            logger.info(f"{i_ROI+1}/{len(indices)} corrected and saved to {new_zarr_path.name}.")
     logger.info(f"Illumination correction for {channel_name} completed.")

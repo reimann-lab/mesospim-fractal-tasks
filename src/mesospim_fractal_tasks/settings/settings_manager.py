@@ -22,7 +22,7 @@ def get_writable_channel_settings_dir() -> Path:
     data_dir = user_data_path(DEFAULTS_PKG, appauthor=DEFAULTS_PKG)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    settings_dir = data_dir / "mesospim-fractal-tasks" / "settings"
+    settings_dir = data_dir / "settings"
     settings_dir.mkdir(parents=True, exist_ok=True)
     return settings_dir
 

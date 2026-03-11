@@ -11,6 +11,7 @@ import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
 import logging
+import shutil
 from pathlib import Path
 import zarr
 from dask.distributed import Client
@@ -406,7 +407,7 @@ def crop_regions_of_interest(
     # Re-compute optimal contrast limits for ROI
     if init_args["crop_or_roi"] == "crop":
         contrast_limits = _determine_optimal_contrast(roi_path, len(pyramid_dict), segment_sample=True)
-        if init_args["erease_source_image"]:
+        if init_args["erase_source_image"]:
             logger.info("Erasing source image...")
             shutil.rmtree(zarr_path)
     else:

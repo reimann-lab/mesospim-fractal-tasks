@@ -71,13 +71,13 @@ class IlluminationModel(BaseModel):
 
     def save_models(
         self,
-        folder: str
+        folder: Path
     ) -> None:
         """
         Save illumination correction profiles to a folder as npz files.
 
         Args:
-            folder (str): Folder name where the illumination
+            folder (Path): Folder name where the illumination
                 correction profiles will be saved.
         """
         if self.flatfield is None:
@@ -88,7 +88,7 @@ class IlluminationModel(BaseModel):
             logger.warning("Darkfield correction profile not found. "
                            "Saving only flatfield profile and baseline.")
             np.savez(
-                Path(Path(folder), "profiles.npz"),
+                Path(folder, "profiles.npz"),
                 flatfield=np.array(self.flatfield),
                 baseline=np.array(self.baseline),
             )
@@ -96,7 +96,7 @@ class IlluminationModel(BaseModel):
             if type(self.darkfield) == da.Array:
                 self.darkfield = self.darkfield.compute()
             np.savez(
-                Path(Path(folder), "profiles.npz"),
+                Path(folder, "profiles.npz"),
                 flatfield=np.array(self.flatfield),
                 darkfield=np.array(self.darkfield),
                 baseline=np.array(self.baseline),

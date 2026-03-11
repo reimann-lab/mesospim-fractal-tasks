@@ -23,6 +23,7 @@ import anndata as ad
 from pathlib import Path
 import logging
 from scipy.ndimage import gaussian_filter1d
+import shutil
 
 from mesospim_fractal_tasks import __version__, __commit__
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
@@ -398,6 +399,10 @@ def correct_illumination(
                 cluster.close(timeout=300)
             except TimeoutError:
                 pass
+
+    if init_args["erase_source_image"]:
+        logger.info("Erasing source image...")
+        shutil.rmtree(zarr_path)
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

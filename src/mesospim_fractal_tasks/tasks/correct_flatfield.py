@@ -22,6 +22,7 @@ import numcodecs
 numcodecs.blosc.set_nthreads(1)
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, Any, Optional
 from pydantic import validate_call
@@ -581,7 +582,7 @@ def correct_flatfield(
                         basicpy_model_params) if basicpy_model_params is not None else None,
                     FOV_list=init_args["FOV_list"],
                     z_levels=init_args["z_levels"],
-                    saving_path=init_args["saving_path"]
+                    saving_path=str(init_args["saving_path"]) if init_args["saving_path"] is not None else None
                 )
             )
             fractal_tasks["correct_flatfield"] = task_dict
@@ -607,6 +608,10 @@ def correct_flatfield(
                 cluster.close(timeout=300)
             except TimeoutError:
                 pass
+
+    if init_args["erase_source_image"]:
+        logger.info("Erasing source image...")
+        shutil.rmtree(zarr_path)
 
     image_list_updates = dict(
         image_list_updates=[dict(zarr_url=str(new_zarr_path), 

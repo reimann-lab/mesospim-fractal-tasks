@@ -193,6 +193,7 @@ def test_z_correction_call(
             channel_index=0,
             n_FOVs=9,
             is_proxy=False,
+            erase_source_image=False,
         ),
         z_correction=z_correction,
     )

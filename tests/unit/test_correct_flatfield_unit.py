@@ -64,7 +64,7 @@ def test_collect_fovs_assert_fov_list_invalid():
             pixel_sizes_yx=(1.0, 1.0),
             n_zplanes=2,
             z_levels=None,
-            is_proxy=False,
+            is_proxy=False
         )
 
 def test_correct_flatfield_uses_empty_fov_models(
@@ -85,6 +85,7 @@ def test_correct_flatfield_uses_empty_fov_models(
         resolution_level=0,
         saving_path=None,
         is_proxy=False,
+        erase_source_image=False,
     )
 
     correct_flatfield(
@@ -113,6 +114,7 @@ def test_correct_flatfield_uses_basicpy_models(
         saving_path=None,
         resolution_level=0,
         is_proxy=False,
+        erase_source_image=False,
     )
 
     correct_flatfield(
@@ -151,6 +153,7 @@ def test_correct_flatfield_loads_npz(
         saving_path=None,
         resolution_level=0,
         is_proxy=False,
+        erase_source_image=False,
     )
 
     correct_flatfield(
@@ -185,6 +188,7 @@ def test_correct_flatfield_missing_flatfield_raises(
         saving_path=None,
         resolution_level=0,
         is_proxy=False,
+        erase_source_image=False,
     )
 
     with pytest.raises(ValueError):

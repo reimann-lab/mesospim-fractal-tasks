@@ -63,7 +63,8 @@ def init_correct_flatfield(
     FOV_list: Optional[list[int]] = None,
     z_levels: Optional[list[int]] = None,
     resolution_level: Optional[int] = None,
-    save_models: bool = False
+    save_models: bool = False,
+    erase_source_image: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Initialized BaSiCPy illumination correction task
@@ -93,6 +94,7 @@ def init_correct_flatfield(
             and highest resolution level for empty FOVs. Default: None.
         save_models: If `True`, illumination profiles will be saved in the parent folder
             of the currently processed OME-Zarr. Default: False.
+        erase_source_image (bool): Whether to erase the source image after correction.
 
     Returns:
         task_output: Dictionary for Fractal server that contains a
@@ -185,11 +187,12 @@ def init_correct_flatfield(
                 init_args=dict(
                     channel_name=channel,
                     channel_index=channel_dict["index"],
-                    saving_path=str(channel_model_folder),
+                    saving_path=channel_model_folder,
                     FOV_list=FOV_list,
                     z_levels=z_levels,
                     is_proxy=is_proxy,
                     resolution_level=resolution_level,
+                    erase_source_image=erase_source_image,
                 ),
             )
         )

@@ -92,6 +92,7 @@ def test_correct_flatfield_main_output(tmp_dataset, mocker):
             saving_path=None,
             is_proxy=False,
             resolution_level=0,
+            erase_source_image=False,
         )
     )
 

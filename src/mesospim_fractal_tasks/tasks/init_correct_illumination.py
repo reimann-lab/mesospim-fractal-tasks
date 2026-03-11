@@ -51,7 +51,8 @@ def group_by_channel(
 def init_correct_illumination(
     *,
     zarr_urls: list[str],
-    zarr_dir: str
+    zarr_dir: str,
+    erase_source_image: bool = False,
 ) -> dict[str, list[dict[str, Any]]]:
     """
     Initializes illumination correction task.
@@ -63,6 +64,7 @@ def init_correct_illumination(
         zarr_dir: path of the directory where the new OME-Zarrs will be
             created. Not used by this task.
             (standard argument for Fractal tasks, managed by Fractal server).
+        erase_source_image (bool): Whether to erase the source image after correction.
 
     Returns:
         task_output: Dictionary for Fractal server that contains a
@@ -105,6 +107,7 @@ def init_correct_illumination(
                     channel_index=channel_dict["index"],
                     n_FOVs=channel_dict["n_FOVs"],
                     is_proxy=is_proxy,
+                    erase_source_image=erase_source_image,
                 ),
             )
         )

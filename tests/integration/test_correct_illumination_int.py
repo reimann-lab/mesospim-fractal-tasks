@@ -50,6 +50,7 @@ def test_correct_illumination_main_output(
             channel_index=0,
             n_FOVs=2,
             is_proxy=False,
+            erase_source_image=False,
         )
     )
 

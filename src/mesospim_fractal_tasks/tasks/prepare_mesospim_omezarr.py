@@ -208,6 +208,7 @@ def build_fov_roi_table(
         # Update translation field for all channels
         for channel in channels:
             ch_df = meta_df[meta_df["channel"] == channel]
+            ch_df = ch_df.reset_index(drop=True)
             tile_path = root_omezarr / ch_df.iloc[i]["tile_omezarr"]
             update_translation_field(
                 tile_path, 

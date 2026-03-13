@@ -1157,6 +1157,7 @@ def get_tiles_from_sim(
             f" has only {len(tile.shape)} dimensions.")
         if np.any(np.array(tile.shape[-3:]) < 5):
             tile_to_remove.append(i)
+            i += 1
             continue
 
 

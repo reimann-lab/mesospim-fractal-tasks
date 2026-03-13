@@ -75,11 +75,11 @@ def stitch_with_multiview_stitcher(
             `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not
             both.
         registration_resolution_level: Resolution level to use for registration.
-            Recommended to set the lowest level possible, e.g. 5 (highest is 0). 
+            Recommended to set the lowest level possible, e.g. 5 (highest is 0).
             If None, the lowest resolution level available will be used for registration.
             Default: None.
         registration_on_z_proj: Whether to perform registration on a maximum
-            projection along z in case of 3D data. Recommended when memory is 
+            projection along z in case of 3D data. Recommended when memory is
             limited but results are generally less good. Default: False.
         registration_function: Type of transformation to use for registration.
             Available functions:
@@ -87,16 +87,16 @@ def stitch_with_multiview_stitcher(
             - 'antspy': see ANTsPy documentation for more information.
             Default: 'phase_correlation'.
         overlap_tolerance:
-            Extend overlap regions considered for pairwise registration. Currently, 
+            Extend overlap regions considered for pairwise registration. Currently,
             the overlap between tiles as referenced in the metadata is used. To go
             beyond this, the following options are available:
             - if 0, the overlap region is the intersection of the tiles.
             - if > 0, the overlap region is the intersection of the tiles
                 extended by this value in the given spatial dimensions.
             Default: 0 for all dimensions.
-        transform_type: Type of transformation to use for registration. 
+        transform_type: Type of transformation to use for registration.
             Available types:
-            - 'translation': translation 
+            - 'translation': translation
             - 'rigid': rigid body transformation
             - 'similarity': similarity transformation
             - 'affine': affine transformation
@@ -108,22 +108,22 @@ def stitch_with_multiview_stitcher(
             from this pattern need to be registered. Available methods:
             - None: No pruning, useful when no regular arrangement is present.
             - 'alternating_pattern': Prune to edges between squares of differering
-                colors in checkerboard pattern. Useful for regular 2D tile arrangements 
+                colors in checkerboard pattern. Useful for regular 2D tile arrangements
                 (of both 2D or 3D data).
-            - 'shortest_paths_overlap_weighted': Prune to shortest paths in overlap 
-                graph (weighted by overlap). Useful to minimize the number of pairwise 
+            - 'shortest_paths_overlap_weighted': Prune to shortest paths in overlap
+                graph (weighted by overlap). Useful to minimize the number of pairwise
                 registrations.
-            - 'otsu_threshold_on_overlap': Prune to edges with overlap above Otsu 
-                threshold. This is useful for regular 2D or 3D grid arrangements, 
+            - 'otsu_threshold_on_overlap': Prune to edges with overlap above Otsu
+                threshold. This is useful for regular 2D or 3D grid arrangements,
                 as diagonal edges will be pruned.
-            - 'keep_axis_aligned': Keep only edges that align with tile axes. This is 
-                useful for regular grid arrangements and to explicitely prune diagonals, 
+            - 'keep_axis_aligned': Keep only edges that align with tile axes. This is
+                useful for regular grid arrangements and to explicitely prune diagonals,
                 e.g. when other methods fail.
-        max_workers: Maximum number of workers to process blocks in parallel. Should not 
+        max_workers: Maximum number of workers to process blocks in parallel. Should not
             be more than number of available workers. If set to one, it falls back to
             sequential processing. Default: 4.
-        fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing 
-            the fusion. It impacts the memory usage and the time to fuse the tiles. It 
+        fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing
+            the fusion. It impacts the memory usage and the time to fuse the tiles. It
             also corresponds to the chunksize of the output zarr. Setting smaller chunks
             can reduce memory usage but increase the time to fuse the tiles.
             If None, the chunksize of the raw image is used. Default: None.
@@ -169,7 +169,7 @@ def stitch_with_multiview_stitcher(
         overlap_tolerance["z"] = None
 
     # Define the registration grid
-    msims_reg, tile_to_remove = get_tiles_from_sim(
+    msims_reg, tiles_to_remove = get_tiles_from_sim(
         xim_well_reg, fov_roi_table, transform_key=input_transform_key
     )
     reg_spatial_dims = si_utils.get_spatial_dims_from_sim(
@@ -195,7 +195,7 @@ def stitch_with_multiview_stitcher(
             f"Error. {channel} is not available in that OME-Zarr image."
         )
         raise ValueError
-    
+
     if transform_type not in ["translation", "rigid", "similarity", "affine"]:
         raise ValueError(f"Error. Unknown transformation type: {transform_type}."
                     " Available types are 'translation', 'rigid', 'similarity', "
@@ -238,7 +238,7 @@ def stitch_with_multiview_stitcher(
 
     # Preparing for fusion
     output_zarr_path = Path(zarr_path.parent, zarr_name)
-    logger.info(f"Saving fused image to {output_zarr_path.name}") 
+    logger.info(f"Saving fused image to {output_zarr_path.name}")
 
     fusion_chunks = list(original_chunksize[-3:])
     if fusion_chunksize is not None:
@@ -247,24 +247,23 @@ def stitch_with_multiview_stitcher(
                 fusion_chunks[i] = fusion_chunksize[dim]
     fusion_chunks = tuple(fusion_chunks)
     logger.info(f"Fusion chunk size set to: {fusion_chunks}.")
-    
+
     if registration_resolution_level == 0 and not registration_on_z_proj:
         xim_well = xim_well_reg
         msims_fusion = msims_reg
     else:
         # Load the full-resolution image for fusion
-        xim_well = get_sim_from_multiscales(zarr_path, 
-                                            resolution=0, 
+        xim_well = get_sim_from_multiscales(zarr_path,
+                                            resolution=0,
                                             chunks=(1,) + fusion_chunks,
                                             is_proxy=is_proxy)
         msims_fusion, _ = get_tiles_from_sim(
             xim_well, fov_roi_table, transform_key=input_transform_key
         )
+        msims_fusion = [msim for i, msim in enumerate(msims_fusion) if i not in tiles_to_remove]
 
     # assign the registration parameters to the tiles to be fused
     for itile in range(len(msims_fusion)):
-        if itile in tile_to_remove:
-            continue
         affine = msi_utils.get_transform_from_msim(
             msims_reg[itile], fusion_transform_key
         )
@@ -299,7 +298,7 @@ def stitch_with_multiview_stitcher(
     elif max_workers == 1:
         batch_options = {"zarr_array_creation_kwargs": {"dimension_separator": "/"},
                          "max_workers": max_workers},
-    
+
     logger.info(f"Starting fusing tiles...")
     fusion.fuse(
         sims,
@@ -313,7 +312,7 @@ def stitch_with_multiview_stitcher(
 
     # Open the zarr group (read/write)
     new_shape = zarr.open_array(output_zarr_path / "0").shape
-    
+
     logger.info("Finished fusing tiles.")
 
     # Add ROI table to the image
@@ -339,7 +338,7 @@ def stitch_with_multiview_stitcher(
                 f" to {output_zarr_path.name}.")
     source_group = zarr.open_group(zarr_path, mode="r")
     source_attrs = source_group.attrs.asdict()
-    source_attrs["multiscales"][0]["name"] = (source_attrs["multiscales"][0]["name"] + 
+    source_attrs["multiscales"][0]["name"] = (source_attrs["multiscales"][0]["name"] +
                                               "_fused")
     fractal_tasks = source_attrs.get("fractal_tasks", {})
     task_dict = dict(
@@ -378,7 +377,7 @@ def stitch_with_multiview_stitcher(
 
     # Prepare the image list update
     image_list_updates = dict(
-        image_list_updates=[dict(zarr_url=str(output_zarr_path), 
+        image_list_updates=[dict(zarr_url=str(output_zarr_path),
                                  origin=str(zarr_path),
                                  attributes=dict(image=output_zarr_path.name))
         ]

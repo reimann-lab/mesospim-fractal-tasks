@@ -112,9 +112,9 @@ def parallel_block_processing(
             for fut in done:
                 _ = fut.result()
                 n_completed += 1
-            
+
             if n_completed in milestones:
-                logger.info(f"{((n_completed/total)*100):.0f}% completed!") 
+                logger.info(f"{((n_completed/total)*100):.0f}% completed!")
 
             # submit new tasks to keep the pipeline full (bounded)
             for _ in range(len(done)):
@@ -236,11 +236,11 @@ def prepare_block_fusion(
 
     full_output_chunksize = [1,] * len(nsdims)\
          + [int(output_chunksize[dim]) for dim in sdims]
-    
+
     normalized_chunks = normalize_chunks(
         shape=full_output_shape,
         chunks=full_output_chunksize)
-    
+
     logger.info(f"Fusing into a an output stack:")
     logger.info(f"- shape: (" + ", ".join([f"{int(output_stack_properties['shape'][dim])}"
         if dim in sdims else f"{ns_shape[dim]}" for dim in dims]) + ")")
@@ -377,7 +377,7 @@ def fuse(
     """
     # If writing directly to Zarr/OME-Zarr, run chunked fusion path and return eagerly.
     if output_zarr_url is not None:
-        
+
         # Collect batch options with defaults
         batch_options = batch_options or {}
         batch_func = batch_options.get("batch_func", None)
@@ -442,11 +442,11 @@ def fuse(
 
         if batch_func is None:
             logger.info(f'Fusing {np.prod(nblocks)} blocks sequentially...')
-                    
+
             # Sequential fallback
             all_block_ids = list(np.ndindex(*nblocks))
             for block_id in all_block_ids:
-                fuse_one_block_worker(block_id, meta=meta, 
+                fuse_one_block_worker(block_id, meta=meta,
                                       fuse_kwargs=worker_fuse_kwargs)
 
         else:
@@ -529,7 +529,7 @@ def fuse(
             "origin": {
                 dim: output_chunk_bb["origin"][dim] # type: ignore
                 - overlap_in_pixels * output_stack_properties["spacing"][dim]  # type: ignore
-                for dim in sdims 
+                for dim in sdims
             }
         } # type: ignore
         | {
@@ -971,11 +971,11 @@ def phase_correlation_registration(
 
 # --- Monkey-patch get_sim_from_array ---
 def patched_get_sim_from_array(
-    array: ArrayLike, 
-    dims: Optional[Union[list, tuple]] = None, 
-    scale: Optional[dict] = None, 
+    array: ArrayLike,
+    dims: Optional[Union[list, tuple]] = None,
+    scale: Optional[dict] = None,
     translation: Optional[dict] = None,
-    affine: Optional[xr.DataArray] = None, 
+    affine: Optional[xr.DataArray] = None,
     transform_key: str = DEFAULT_TRANSFORM_KEY,
     c_coords: Optional[Union[list, tuple, ArrayLike]] = None,
     t_coords: Optional[Union[list, tuple, ArrayLike]] = None
@@ -1132,7 +1132,7 @@ def get_tiles_from_sim(
     """
     input_spatial_dims = [dim for dim in xim_well.dims if dim in ["z", "y", "x"]]
     msims = []
-    for _, row in fov_roi_table.iterrows():
+    for i, row in fov_roi_table.iterrows():
         origin = {dim: row[f"{dim}_micrometer"] for dim in input_spatial_dims}
         extent = {dim: row[f"len_{dim}_micrometer"] for dim in input_spatial_dims}
 
@@ -1149,6 +1149,13 @@ def get_tiles_from_sim(
         )
 
         tile = tile.squeeze(drop=True)
+
+        if len(tile.shape) != 4:
+            raise ValueError(f"Tile must be a 4D array (c,z,y,x). But tile {i}"
+            f" has only {len(tile.shape)} dimensions.")
+        if np.any(np.array(tile.shape[-3:]) < 5):
+            continue
+
 
         sim = si_utils.get_sim_from_array(
             tile.data,

@@ -169,7 +169,7 @@ def stitch_with_multiview_stitcher(
         overlap_tolerance["z"] = None
 
     # Define the registration grid
-    msims_reg = get_tiles_from_sim(
+    msims_reg, tile_to_remove = get_tiles_from_sim(
         xim_well_reg, fov_roi_table, transform_key=input_transform_key
     )
     reg_spatial_dims = si_utils.get_spatial_dims_from_sim(
@@ -257,12 +257,14 @@ def stitch_with_multiview_stitcher(
                                             resolution=0, 
                                             chunks=(1,) + fusion_chunks,
                                             is_proxy=is_proxy)
-        msims_fusion = get_tiles_from_sim(
+        msims_fusion, _ = get_tiles_from_sim(
             xim_well, fov_roi_table, transform_key=input_transform_key
         )
 
     # assign the registration parameters to the tiles to be fused
     for itile in range(len(msims_fusion)):
+        if itile in tile_to_remove:
+            continue
         affine = msi_utils.get_transform_from_msim(
             msims_reg[itile], fusion_transform_key
         )

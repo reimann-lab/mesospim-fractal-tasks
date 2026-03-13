@@ -1132,7 +1132,9 @@ def get_tiles_from_sim(
     """
     input_spatial_dims = [dim for dim in xim_well.dims if dim in ["z", "y", "x"]]
     msims = []
-    for i, row in fov_roi_table.iterrows():
+    i = 0
+    tile_to_remove = []
+    for _, row in fov_roi_table.iterrows():
         origin = {dim: row[f"{dim}_micrometer"] for dim in input_spatial_dims}
         extent = {dim: row[f"len_{dim}_micrometer"] for dim in input_spatial_dims}
 
@@ -1151,9 +1153,10 @@ def get_tiles_from_sim(
         tile = tile.squeeze(drop=True)
 
         if len(tile.shape) != 4:
-            raise ValueError(f"Tile must be a 4D array (c,z,y,x). But tile {i}"
+            raise ValueError(f"Tile must be a 4D array (c,z,y,x). But tile {i+1}"
             f" has only {len(tile.shape)} dimensions.")
         if np.any(np.array(tile.shape[-3:]) < 5):
+            tile_to_remove.append(i)
             continue
 
 
@@ -1167,10 +1170,11 @@ def get_tiles_from_sim(
         )
 
         msim = msi_utils.get_msim_from_sim(sim, scale_factors=[])
+        i += 1
 
         msims.append(msim)
 
-    return msims
+    return msims, tile_to_remove
 
 
 class StitchingChannelInputModel(ChannelInputModel):

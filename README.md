@@ -32,7 +32,7 @@ This package provides Fractal-compatible tasks that handle the specific file for
 | **Archive or dearchive an OME-Zarr** | Archive or dearchive an OME-Zarr by compressing or uncompressing all image data to a TAR file |
 
 
-> For full task documentation including all parameters, refer to the full [documentation](https://reimann-lab.github.io/mesospim-fractal-tasks/tasks).
+> For full task documentation including all parameters, refer to the full [documentation](https://reimann-lab.github.io/mesospim-fractal-tasks).
 
 ---
 

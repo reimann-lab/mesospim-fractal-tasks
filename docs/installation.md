@@ -26,8 +26,16 @@ After the environment is created, the package is installed using pip.
     For Conda/Mamba installation, refer to the [Conda documentation](https://docs.conda.io/projects/conda/en/stable/user-guide/install/index.html) and
     [Mamba documentation](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html).
 
+    Install the package in the conda environment:
+
+        git clone https://github.com/reimann-lab/mesospim-fractal-tasks.git  
+        cd path/to/mesospim-fractal-tasks
+        pip install .
+
 2. Install the package in a Python virtual environment
 
         python -m venv venv  
         source venv/bin/activate  
-        pip install mesospim-fractal-tasks  
+        git clone https://github.com/reimann-lab/mesospim-fractal-tasks.git  
+        cd path/to/mesospim-fractal-tasks
+        pip install .

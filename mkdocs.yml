@@ -1,7 +1,7 @@
 site_name: MesoSPIM Fractal Tasks
 site_description: Tasks for converting mesoSPIM lightsheet image data to OME-Zarr and performing illumination correction & stitching
 site_author: Giliane Rochat
-repo_url: https://github.com/girochat/mesospim-fractal-tasks
+repo_url: https://github.com/reimann-lab/mesospim-fractal-tasks
 theme:
   name: material
   features:

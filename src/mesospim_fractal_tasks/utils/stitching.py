@@ -177,14 +177,23 @@ def fuse_one_block_worker(block_id, *, meta: dict, fuse_kwargs: dict):
     # Slice out the non-spatial single index (keeps your behavior)
     fused = fused[tuple(slice(ns_coord[dim], ns_coord[dim] + 1) for dim in nsdims)]
 
+
+    # add channel_offset support (defaults to 0, so existing behavior unchanged)
+    c_i = meta.get("channel_index", 0)
+
     region = tuple(
-        [slice(ns_coord[dim], ns_coord[dim] + 1) for dim in nsdims]
+        [
+            slice(
+                ns_coord[dim] + (c_i if dim == "c" else 0),
+                ns_coord[dim] + (c_i if dim == "c" else 0) + 1,
+            )
+            for dim in nsdims
+        ]
         + [slice(chunk_offset[dim], chunk_offset[dim] + chunk_shape[dim]) for dim in sdims]
     )
 
     # Ensure a local scheduler inside the worker
     with dask_config.set(scheduler="single-threaded"):
-        #da.to_zarr(fused, output_zarr_array, region=region)
         fused_block = fused.compute()
     output_zarr_array[region] = fused_block
 
@@ -246,14 +255,15 @@ def prepare_block_fusion(
         if dim in sdims else f"{ns_shape[dim]}" for dim in dims]) + ")")
 
     # Create Zarr array ONCE
-    zarr.create(
-        shape=full_output_shape,
-        chunks=full_output_chunksize,
-        dtype=sims[0].data.dtype,
-        store=output_zarr_url,
-        overwrite=True,
-        **(zarr_array_creation_kwargs or {}),
-    )
+    if not Path(output_zarr_url).exists():
+        zarr.create(
+            shape=full_output_shape,
+            chunks=full_output_chunksize,
+            dtype=sims[0].data.dtype,
+            store=output_zarr_url,
+            overwrite=False,
+            **(zarr_array_creation_kwargs or {}),
+        )
 
     nblocks = [len(nc) for nc in normalized_chunks]
 
@@ -431,6 +441,7 @@ def fuse(
 
         nblocks = block_fusion_info["nblocks"]
         meta = block_fusion_info["meta"]
+        meta["channel_index"] = batch_options.get("channel_index", 0)
         worker_fuse_kwargs = block_fusion_info["fuse_kwargs"]
 
         batch_func_kwargs = (batch_func_kwargs or {})
@@ -461,8 +472,14 @@ def fuse(
             sim_dims = None
         else:
             sim_dims = list(sims[0].dims)
+
+
+        # Build SpatialImage from zarr array
+        channel_offset = meta.get("channel_offset", 0)
+        n_c = len(sims[0].coords["c"])
+        array_back = da.from_zarr(store_url)[channel_offset : channel_offset + n_c]
         fused = si_utils.get_sim_from_array(
-            array=da.from_zarr(store_url),
+            array=array_back,
             dims=sim_dims,
             transform_key=fusion_transform_key,
             scale=osp["spacing"],
@@ -1152,8 +1169,8 @@ def get_tiles_from_sim(
 
         tile = tile.squeeze(drop=True)
 
-        if len(tile.shape) != 4:
-            raise ValueError(f"Tile must be a 4D array (c,z,y,x). But tile {i+1}"
+        if len(tile.shape) < 3:
+            raise ValueError(f"Tile must be at least a 3D array ((c),z,y,x). But tile {i+1}"
             f" has only {len(tile.shape)} dimensions.")
         if np.any(np.array(tile.shape[-3:]) < 5):
             tile_to_remove.append(i)

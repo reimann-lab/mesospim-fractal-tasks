@@ -1,6 +1,5 @@
 # mesoSPIM Fractal Tasks
 
-[![PyPI version](https://img.shields.io/pypi/v/mesospim-fractal-tasks.svg)](https://pypi.org/project/mesospim-fractal-tasks/)
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
 [![Documentation](https://img.shields.io/badge/docs-mkdocs-blue)](https://reimann-lab.github.io/mesospim-fractal-tasks)
 
@@ -51,7 +50,7 @@ conda activate mesospim-fractal-tasks
 
 ```bash
 git clone https://github.com/reimann-lab/mesospim-fractal-tasks.git
-cd mesospim-fractal-tasks
+cd /path/to/mesospim-fractal-tasks
 pip install -e .
 ```
 
@@ -96,5 +95,5 @@ This project is licensed under the **BSD 3-Clause License** — see [LICENSE](LI
 - [mesoSPIM initiative](https://mesospim.org/) for the open-source microscope platform
 - [Fractal Analytics Platform](https://fractal-analytics-platform.github.io/) (BioVisionCenter, University of Zurich) for the task framework
 - [BioVisionCenter](https://www.biovisioncenter.uzh.ch/en.html)
-- [Multiview Stitcher](https://github.com/mpicbg-csbd/multiview_stitching) for the multiview stitching implementation
+- [Multiview Stitcher](https://github.com/multiview-stitcher/multiview-stitcher) for the multiview stitching implementation
 - [NGFF OME-Zarr](https://ngff.openmicroscopy.org/index.html) for the OME-Zarr / NGFF specification

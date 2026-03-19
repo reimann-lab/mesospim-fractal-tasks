@@ -33,7 +33,8 @@ from mesospim_fractal_tasks.utils.stitching import (
     patched_get_sim_from_array,
     parallel_block_processing,
     fuse,
-    phase_correlation_registration
+    phase_correlation_registration,
+    _copy_registered_transform,
 )
 
 si_utils.get_sim_from_array = patched_get_sim_from_array
@@ -42,7 +43,7 @@ registration.phase_correlation_registration = phase_correlation_registration
 
 from mesospim_fractal_tasks.utils.models import DimTuple
 from mesospim_fractal_tasks.utils.zarr_utils import (
-    build_pyramid, _get_pyramid_structure)
+    build_pyramid, _get_pyramid_structure, _copy_ngff_metadata)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks import __version__, __commit__
 
@@ -181,20 +182,7 @@ def stitch_with_multiview_stitcher(
     logger.info(f"Registration spatial dimsensions: {reg_spatial_dims}")
 
     # Find channel index
-    channel.verify_label(zarr_path)
-    omero_channel = channel.get_omero_channel(zarr_path)
-    if omero_channel:
-        reg_channel_index = omero_channel.index
-        if reg_channel_index is None:
-            logger.error(
-            f"Error. {channel} has no index in that OME-Zarr image."
-        )
-            raise ValueError
-    else:
-        logger.error(
-            f"Error. {channel} is not available in that OME-Zarr image."
-        )
-        raise ValueError
+    reg_channel_index = channel.get_omero_channel_index(zarr_path)
 
     if transform_type not in ["translation", "rigid", "similarity", "affine"]:
         raise ValueError(f"Error. Unknown transformation type: {transform_type}."
@@ -264,21 +252,11 @@ def stitch_with_multiview_stitcher(
 
     # assign the registration parameters to the tiles to be fused
     for itile in range(len(msims_fusion)):
-        affine = msi_utils.get_transform_from_msim(
-            msims_reg[itile], fusion_transform_key
-        )
-
-        # if the registration was performed on a maximum projection in Z, we need to
-        # broadcast the obtained affine parameters to 3D
-        if registration_on_z_proj:
-            affine_3d = param_utils.identity_transform(
-                ndim=3, t_coords=affine.coords["t"] if "t" in affine.dims else None
-            )
-            affine_3d.loc[{pdim: affine.coords[pdim] for pdim in affine.dims}] = affine
-            affine = affine_3d
-
-        msi_utils.set_affine_transform(
-            msims_fusion[itile], affine, fusion_transform_key
+        msims_fusion[itile] = _copy_registered_transform(
+            msims_reg[itile],
+            msims_fusion[itile],
+            registration_on_z_proj,
+            transform_key=fusion_transform_key
         )
 
     sims = [msi_utils.get_sim_from_msim(msim) for msim in msims_fusion]
@@ -316,13 +294,7 @@ def stitch_with_multiview_stitcher(
     logger.info("Finished fusing tiles.")
 
     # Add ROI table to the image
-    ngff_image_meta.get_pixel_sizes_zyx(level=0)
-    pixels_ZYX = (
-        ngff_image_meta.multiscales[0]
-        .datasets[0]
-        .coordinateTransformations[0]
-        .scale[-3:]
-    )
+    pixels_ZYX = ngff_image_meta.get_pixel_sizes_zyx(level=0)
     new_group = zarr.open_group(output_zarr_path, mode="a")
     image_ROI_table = get_single_image_ROI(new_shape, pixels_ZYX=pixels_ZYX)
     write_table(
@@ -334,18 +306,12 @@ def stitch_with_multiview_stitcher(
     )
 
     # Copy NGFF metadata from the old zarr_url to the new zarr
-    logger.info(f"Copying NGFF metadata from {zarr_path.name}"
-                f" to {output_zarr_path.name}.")
-    source_group = zarr.open_group(zarr_path, mode="r")
-    source_attrs = source_group.attrs.asdict()
-    source_attrs["multiscales"][0]["name"] = (source_attrs["multiscales"][0]["name"] +
-                                              "_fused")
-    fractal_tasks = source_attrs.get("fractal_tasks", {})
-    task_dict = dict(
-        version=__version__.split("dev")[0][:-1],
-        commit=__commit__,
-        input_parameters=dict(
-            channel=channel.label,
+    _copy_ngff_metadata(
+        source_zarr_path=zarr_path,
+        output_zarr_path=output_zarr_path,
+        fractal_task_name="stitch_with_multiview_stitcher",
+        task_params=dict(
+            channel=channel,
             registration_resolution_level=registration_resolution_level,
             registration_on_z_proj=registration_on_z_proj,
             registration_function=registration_function,
@@ -354,12 +320,10 @@ def stitch_with_multiview_stitcher(
             pre_registration_pruning_method=pre_registration_pruning_method,
             max_workers=max_workers,
             fusion_chunksize=fusion_chunksize_dict,
-        )
+        ),
+        commit=__commit__,
+        version=__version__,
     )
-    fractal_tasks["stitching_with_multiview_stitcher"] = task_dict
-    source_attrs["fractal_tasks"] = fractal_tasks
-    new_group.attrs.put(source_attrs)
-    logger.info("Finished copying NGFF metadata.")
 
     logger.info("Start building multi-resolution pyramid.")
     with _set_dask_cluster(n_workers=4) as cluster:

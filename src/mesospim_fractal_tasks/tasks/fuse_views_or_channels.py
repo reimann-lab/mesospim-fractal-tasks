@@ -37,11 +37,15 @@ from mesospim_fractal_tasks.utils.stitching import (
     parallel_block_processing,
     patched_get_sim_from_array,
     phase_correlation_registration,
-    get_tiles_from_sim
+    get_tiles_from_sim,
+    _copy_registered_transform,
 )
 from mesospim_fractal_tasks.utils.zarr_utils import (
     _get_pyramid_structure,
     build_pyramid,
+    _copy_ngff_metadata,
+    _determine_optimal_contrast,
+    _update_omero_channels,
 )
 
 numcodecs.blosc.set_nthreads(1)
@@ -56,22 +60,14 @@ DEFAULT_INPUT_TRANSFORM_KEY = "fractal_input"
 DEFAULT_REGISTERED_TRANSFORM_KEY = "translation_registered"
 
 
-def _is_proxy_image(zarr_path: Path) -> bool:
+def _is_proxy_image(
+    zarr_path: Path
+) -> bool:
     fractal_tasks = zarr.open_group(zarr_path, mode="r").attrs.get("fractal_tasks", {})
     return (
         "prepare_mesospim_omezarr" in fractal_tasks
         and zarr_path.name == "fake_raw_image"
     )
-
-def _get_channel_index(
-    zarr_path: Path,
-    channel: StitchingChannelInputModel,
-) -> int:
-    channel.verify_label(zarr_path)
-    omero_channel = channel.get_omero_channel(zarr_path)
-    if omero_channel is None or omero_channel.index is None:
-        raise ValueError(f"Channel {channel} not found in {zarr_path}.")
-    return int(omero_channel.index)
 
 def _load_xim(
     zarr_path: Path,
@@ -90,7 +86,7 @@ def _make_msim_from_single_sim(
     xim, 
     transform_key: str = DEFAULT_INPUT_TRANSFORM_KEY):
 
-    sim = si_utils.get_sim_from_array(
+    sim = patched_get_sim_from_array(
             xim.data,
             dims=xim.dims,
             c_coords=xim.coords["c"].data,
@@ -103,9 +99,11 @@ def _make_msim_from_single_sim(
     return msim
 
 def _update_channels_metadata(
-    attrs_list: list
-) -> dict:
+    source_zarr_paths: list,
+    output_zarr_path: Path,
+) -> None:
     
+    attrs_list = [zarr.open_group(source_zarr_path, mode="r").attrs.asdict() for source_zarr_path in source_zarr_paths]
     ref_attrs = attrs_list[0]
     ref_omero = ref_attrs.get("omero", {})
 
@@ -131,27 +129,12 @@ def _update_channels_metadata(
 
     ref_attrs["omero"] = ref_omero
     ref_attrs["acquisition_metadata"] = ref_acquisition
-    
-    return ref_attrs
 
-def _copy_registered_transform(
-    msim_source,
-    msim_target,
-    registration_on_z_proj: bool,
-    transform_key: str = DEFAULT_REGISTERED_TRANSFORM_KEY,
-):
-    affine = msi_utils.get_transform_from_msim(msim_source, transform_key)
-    
-    # if the registration was performed on a maximum projection in Z, we need to
-    # broadcast the obtained affine parameters to 3D
-    if registration_on_z_proj:
-        affine_3d = param_utils.identity_transform(
-            ndim=3, t_coords=affine.coords["t"] if "t" in affine.dims else None
-        )
-        affine_3d.loc[{pdim: affine.coords[pdim] for pdim in affine.dims}] = affine
-        affine = affine_3d
-    msi_utils.set_affine_transform(msim_target, affine, transform_key=transform_key)
-    return msim_target
+    out_attrs = zarr.open_group(output_zarr_path, mode="a").attrs.asdict()
+    out_attrs["omero"] = ref_omero
+    out_attrs["acquisition_metadata"] = ref_acquisition
+
+    zarr.open_group(output_zarr_path, mode="a").attrs.put(out_attrs)
 
 def find_zarr_images(
     ref_zarr_path: Path,
@@ -292,12 +275,12 @@ def prepare_and_fuse(
     channel_labels = []
     ref_spacing = {}
     original_shape = None
-    for zarr_path, msim_reg_tiles in zip(zarr_image_paths, msims_reg_list):
+    for zarr_path, msim_reg in zip(zarr_image_paths, msims_reg_list):
         xim_ch = _load_xim(zarr_path, resolution=0, chunks=(1,) + fusion_chunks)
         ref_spacing = si_utils.get_spacing_from_sim(xim_ch)
         channel_labels.append(str(xim_ch.coords["c"].values[0]))
 
-        # If multitile, load the tiles and attach registered transforms
+        # If multitile, load the tiles separately and attach registered transforms
         if len(fov_roi_tables) != 0:
             msims_tiles, _ = get_tiles_from_sim(
                 xim_ch, fov_roi_tables[0], transform_key=DEFAULT_INPUT_TRANSFORM_KEY
@@ -305,20 +288,24 @@ def prepare_and_fuse(
             original_shape = xim_ch.shape
             for itile in range(len(msims_tiles)):
                 msims_tiles[itile] = _copy_registered_transform(
-                    msim_reg_tiles[itile],
+                    msim_reg[itile],
                     msims_tiles[itile],
                     registration_on_z_proj,
+                    transform_key=DEFAULT_REGISTERED_TRANSFORM_KEY,
                 )
             sims_ch = [msi_utils.get_sim_from_msim(msim) for msim in msims_tiles]
+            dtype = sims_ch[0].dtype
             all_sims.append(sims_ch)
         else:
             msim_ch = _make_msim_from_single_sim(xim_ch, DEFAULT_INPUT_TRANSFORM_KEY)
             msim_ch = _copy_registered_transform(
-                msim_reg_tiles,
+                msim_reg,
                 msim_ch,
                 registration_on_z_proj,
+                transform_key=DEFAULT_REGISTERED_TRANSFORM_KEY,
             )
             all_sims.append(msi_utils.get_sim_from_msim(msim_ch))
+            dtype = all_sims[0].dtype
 
     # Compute the shared output space once across all channel sims
     common_osp = fusion.process_output_stack_properties(
@@ -330,6 +317,8 @@ def prepare_and_fuse(
         output_stack_mode="union",
         transform_key=DEFAULT_REGISTERED_TRANSFORM_KEY,
     )
+
+    # Make sure to ignore original transform of the tiles (not stitching mode)
     if len(fov_roi_tables) != 0 and original_shape is not None:
         common_osp["shape"] = {
             'z': original_shape[-3], 
@@ -339,25 +328,25 @@ def prepare_and_fuse(
     spatial_shape = tuple(int(common_osp["shape"][d]) for d in ["z", "y", "x"])
     logger.info(f"Common output spatial shape: {spatial_shape}")
 
-    # Pre-create the final output zarr with full (n_ch, z, y, x) shape
-    n_ch = len(channel_labels)
-    full_shape = (n_ch,) + spatial_shape
-    out_chunks = (1,) + fusion_chunks
-    output_zarr_path.mkdir(parents=True, exist_ok=True)
-    zarr.open_array(
-        str(output_zarr_path / "0"),
-        mode="w",
-        shape=full_shape,
-        chunks=out_chunks,
-        dtype=np.uint16,
-        dimension_separator="/",
-    )
-
-    # Don't overwrite zarr array in fuse function
-    zarr_options = {"overwrite": False}
-
     # Each channel fuses directly into slice [ic:ic+1, ...] of the final zarr if mode=channels
     if mode == "channels":
+        
+        # Pre-create the final output zarr with full (n_ch, z, y, x) shape
+        n_ch = len(channel_labels)
+        full_shape = (n_ch,) + spatial_shape
+        out_chunks = (1,) + fusion_chunks
+        output_zarr_path.mkdir(parents=True, exist_ok=True)
+        zarr.open_array(
+            str(output_zarr_path / "0"),
+            mode="w",
+            shape=full_shape,
+            chunks=out_chunks,
+            dtype=dtype,
+            dimension_separator="/",
+        )
+
+        # Don't overwrite zarr array in fuse function
+        zarr_options = {"overwrite": False}
         for ic, sim_ch in enumerate(all_sims):
 
             # Pass channel coordinates through batch_options -> meta
@@ -385,36 +374,8 @@ def prepare_and_fuse(
             output_chunksize=fusion_chunksize_dict,
             output_stack_properties=common_osp,
             output_zarr_url=str(output_zarr_path / "0"),  # same store, every time
-            batch_options=ch_batch_options,
-            zarr_options=zarr_options,
+            batch_options=ch_batch_options
         )
-
-def copy_ngff_metadata(
-    *,
-    source_zarr_paths: list,
-    output_zarr_path: Path,
-    task_params: dict,
-    mode: str,
-):
-    source_groups = [zarr.open_group(source_zarr_path, mode="r") for source_zarr_path in source_zarr_paths]
-    output_group = zarr.open_group(output_zarr_path, mode="a")
-
-    attrs_list = [source_group.attrs.asdict() for source_group in source_groups]
-    attrs = attrs_list[0]
-    if mode == "channels":
-        attrs = _update_channels_metadata(attrs_list)
-
-    fractal_tasks = attrs.get("fractal_tasks", {})
-    fractal_tasks["fuse_views_or_channels"] = dict(
-        version=__version__.split("dev")[0][:-1],
-        commit=__commit__,
-        input_parameters=task_params,
-    )
-    attrs["fractal_tasks"] = fractal_tasks
-
-    output_group.attrs.put(attrs)
-    for i, source_zarr_path in enumerate(source_zarr_paths):
-        shutil.copyfile(source_zarr_path /".zattrs", output_zarr_path /f".{mode[:-1]}_{i}_zattrs")
 
 def copy_roi_tables(
     *,
@@ -487,7 +448,7 @@ def fuse_views_or_channels(
         raise ValueError(f"Output zarr {output_zarr_name} already exists in "
                          f"{ref_zarr_path.parents[1].name}. "
                          "Hint: try setting overwrite=True if you want to overwrite it.")
-    elif output_zarr_path.exists() and overwrite:
+    elif (output_zarr_path.exists() or output_zarr_path.parent.exists()) and overwrite:
         shutil.rmtree(output_zarr_path.parent)
         if output_zarr_path in zarr_image_paths:
             zarr_image_paths.remove(output_zarr_path)
@@ -518,7 +479,7 @@ def fuse_views_or_channels(
                                  f"provided resolution level: {registration_resolution_level}.")
     
     if registration_channel is not None:
-        reg_channel_index = _get_channel_index(ref_zarr_path, registration_channel)
+        reg_channel_index = registration_channel.get_omero_channel_index(ref_zarr_path)
     else:
         reg_channel_index = 0
 
@@ -528,6 +489,15 @@ def fuse_views_or_channels(
         fake_channel_name = xim_reg_list[0].coords["c"].data
         for i, xim_reg in enumerate(xim_reg_list):
             xim_reg_list[i] = xim_reg.assign_coords(c=fake_channel_name)
+    else:
+        channel_labels = set(xim_reg_list[0].coords["c"].data)
+        for i, xim_reg in enumerate(xim_reg_list):
+            if i == 0:
+                continue
+            if set(xim_reg.coords["c"].data) != channel_labels:
+                raise ValueError("All views must have the same channels."
+                                 f"Found channels {xim_reg.coords['c'].data} in view {i} "
+                                 f"and {channel_labels} in view 0.")
     
     fov_roi_tables = []
     if Path(ref_zarr_path, "tables/FOV_ROI_table").exists():
@@ -597,9 +567,10 @@ def fuse_views_or_channels(
 
     
     # Copy NGFF metadata from the old zarr_url to the new zarr
-    copy_ngff_metadata(
-        source_zarr_paths=zarr_image_paths,
+    _copy_ngff_metadata(
+        source_zarr_path=zarr_image_paths[0],
         output_zarr_path=output_zarr_path,
+        fractal_task_name="fuse_views_or_channels",
         task_params=dict(
             zarr_image_paths=[zarr_image_path.parent.name + "/" + zarr_image_path.name for zarr_image_path in zarr_image_paths],
             registration_channel=registration_channel.label if registration_channel else None,
@@ -610,8 +581,17 @@ def fuse_views_or_channels(
             max_workers=max_workers,
             mode=mode,
         ),
-        mode=mode,
+        commit=__commit__,
+        version=__version__,
     )
+
+    # Copy all channels metadata in channels mode
+    if mode == "channels":
+        _update_channels_metadata(zarr_image_paths, output_zarr_path)
+    
+    # Copy original metadata
+    for i, source_zarr_path in enumerate(zarr_image_paths):
+        shutil.copyfile(source_zarr_path /".zattrs", output_zarr_path /f".{mode[:-1]}_{i}_zattrs")
 
     copy_roi_tables(
         fov_roi_tables=fov_roi_tables,
@@ -628,6 +608,10 @@ def fuse_views_or_channels(
                 pyramid_dict=pyramid_dict
             )
             logger.info("Finished building resolution pyramid")
+
+    contrast_limits = _determine_optimal_contrast(output_zarr_path, len(pyramid_dict), segment_sample=True)
+    
+    _update_omero_channels(output_zarr_path, {"window": contrast_limits})
 
     # Prepare the image list update
     image_list_updates = dict(

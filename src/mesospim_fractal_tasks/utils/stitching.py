@@ -1150,7 +1150,7 @@ def get_tiles_from_sim(
     input_spatial_dims = [dim for dim in xim_well.dims if dim in ["z", "y", "x"]]
     msims = []
     i = 0
-    tile_to_remove = []
+    tiles_to_remove = []
     for _, row in fov_roi_table.iterrows():
         origin = {dim: row[f"{dim}_micrometer"] for dim in input_spatial_dims}
         extent = {dim: row[f"len_{dim}_micrometer"] for dim in input_spatial_dims}
@@ -1173,7 +1173,7 @@ def get_tiles_from_sim(
             raise ValueError(f"Tile must be at least a 3D array ((c),z,y,x). But tile {i+1}"
             f" has only {len(tile.shape)} dimensions.")
         if np.any(np.array(tile.shape[-3:]) < 5):
-            tile_to_remove.append(i)
+            tiles_to_remove.append(i)
             i += 1
             continue
 
@@ -1192,8 +1192,27 @@ def get_tiles_from_sim(
 
         msims.append(msim)
 
-    return msims, tile_to_remove
+    return msims, tiles_to_remove
 
+def _copy_registered_transform(
+    msim_source,
+    msim_target,
+    registration_on_z_proj: bool,
+    transform_key: str,
+):
+    affine = msi_utils.get_transform_from_msim(msim_source, transform_key)
+    
+    # if the registration was performed on a maximum projection in Z, we need to
+    # broadcast the obtained affine parameters to 3D
+    if registration_on_z_proj:
+        affine_3d = param_utils.identity_transform(
+            ndim=3, t_coords=affine.coords["t"] if "t" in affine.dims else None
+        )
+        affine_3d.loc[{pdim: affine.coords[pdim] for pdim in affine.dims}] = affine
+        affine = affine_3d
+    msi_utils.set_affine_transform(msim_target, affine, transform_key=transform_key)
+    return msim_target
+    
 
 class StitchingChannelInputModel(ChannelInputModel):
     """Channel input for stitching.
@@ -1233,7 +1252,25 @@ class StitchingChannelInputModel(ChannelInputModel):
                 f"Original error: {e!s}"
             )
             return None
-
+    
+    def get_omero_channel_index(self, zarr_path) -> int:
+        """Get the omero channel index from the zarr url"""
+        
+        self.verify_label(zarr_path)
+        omero_channel = self.get_omero_channel(zarr_path)
+        if omero_channel:
+            reg_channel_index = omero_channel.index
+            if reg_channel_index is None:
+                logger.error(
+                f"Error. The provided channel model ({self}) has no index in that OME-Zarr image."
+            )
+                raise ValueError
+            return reg_channel_index
+        else:
+            logger.error(
+                f"Error. The provided channel model ({self}) is not available in that OME-Zarr image."
+            )
+            raise ValueError
 
 class PreRegistrationPruningMethod(Enum):
     """PreRegistrationPruningMethod Enum class

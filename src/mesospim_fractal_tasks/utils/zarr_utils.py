@@ -13,6 +13,37 @@ from fractal_tasks_core.labels import prepare_label_group
 
 logger = logging.getLogger(__name__)
 
+def _copy_ngff_metadata(
+    *,
+    source_zarr_path: Path,
+    output_zarr_path: Path,
+    fractal_task_name: str,
+    task_params: dict,
+    commit: str,
+    version: str,
+):
+    # Copy NGFF metadata from the old zarr_url to the new zarr
+    logger.info(f"Copying NGFF metadata from "
+                f"{source_zarr_path.parent.name}/{source_zarr_path.name}"
+                f" to {output_zarr_path.parent.name}/"
+                f"{output_zarr_path.name}.")
+    source_group = zarr.open_group(source_zarr_path, mode="r")
+    output_group = zarr.open_group(output_zarr_path, mode="a")
+
+    attrs = source_group.attrs.asdict()
+    attrs["multiscales"][0]["name"] = output_zarr_path.name
+
+    fractal_tasks = attrs.get("fractal_tasks", {})
+    fractal_tasks[fractal_task_name] = dict(
+        version=version.split("dev")[0][:-1],
+        commit=commit,
+        input_parameters=task_params,
+    )
+    attrs["fractal_tasks"] = fractal_tasks
+
+    output_group.attrs.put(attrs)
+    logger.info("Finished copying NGFF metadata.")
+
 def convert_ROI_table_to_indices(
     ROI: ad.AnnData,
     scale_zyx: Sequence[float],

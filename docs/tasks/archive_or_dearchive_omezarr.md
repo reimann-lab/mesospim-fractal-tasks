@@ -2,10 +2,7 @@
 
 This task can be used to archive an OME-Zarr folder. All images contained in the folder will be first compressed to a higher compression level, the the full OME-Zarr will be archived to a unique TAR file for easier long-term archiving. The same task can also be used to later unarchive the OME-Zarr. 
 
-The task can be used in two ways:
-
-1. **On the Fractal platform** – as part of a workflow.
-2. **Locally** – by running the task directly as a Python function or CLI command.
+The task is not compatible with the Fractal server and can only be run locally.
 
 ---
 

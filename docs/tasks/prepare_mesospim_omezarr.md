@@ -60,15 +60,17 @@ For example:
 
 ### Chunksize
 
-The OME-Zarr stores image data in chunks and at several resolution levels in a so-called pyramid of multi-resolution. The chunksize parameter allows you to set the size of the chunks in pixels. It is recommended to keep the size of the chunks small to avoid memory issues, but not too small to reduce the overhead of storing the data in OME-Zarr. The size should be around 100Mb-1Gb, see [this article](https://blog.dask.org/2021/11/02/choosing-dask-chunk-sizes) for more infos.  
-You can compute the size of the chunksize by multiplying their values and by the byte size (for mesoSPIM image data it is typically 2, but prefer 4 to comply with analysis tasks).  Furthermore, the chunksize should be set to a value that is a power of 2, e.g. 64, 128, 512... The chunksize impacts how fast the OME-Zarr can be viewed but also the memory requirements to process it. There are three required numbers to provide, one for each axis in the order `Z`, `Y`, and `X`. The `Z` axis is often smaller than the other two, so it is recommended to provide a smaller chunksize for it. 
+The OME-Zarr stores image data in chunks and at several resolution levels in a so-called pyramid of multi-resolution. The chunksize parameter allows you to set the size of the chunks in pixels. It is recommended to keep the size of the chunks small to avoid memory issues, but not too small to reduce the overhead of storing the data in OME-Zarr. The size should be around 100Mb-1Gb, see [this article](https://blog.dask.org/2021/11/02/choosing-dask-chunk-sizes) for more infos. You can compute the size of the chunksize by multiplying their values and by the byte size (for mesoSPIM image data it is typically 2, but it is recommended to use 4 due to the analysis tasks that internally uses a bigger byte size). 
+
+Furthermore, the chunksize should be set to a value that is a power of 2, e.g. 64, 128, 512... The chunksize impacts how fast the OME-Zarr can be viewed but also the memory requirements to process it. There are three required numbers to provide, one for each axis in the order `Z`, `Y`, and `X`. The `Z` axis is often smaller than the other two, so it is recommended to provide a smaller chunksize for it. 
 
 Here is a video with a good visual explanation about the OME-Zarr structure such as the pyramid of resolution and the chunks (first 15min): [Handling huge imaging data with OME-Zarr](https://www.youtube.com/watch?v=RlvJXqKjmek)
 
-Typical values examples:
-- 128x512x512 (~136Mb)
-- 32x1024x1024 (~136Mb)
-- 64x1024x1024 (~268Mb)
+Typical values examples: 
+
+- 128x512x512   =>    128\*512\*512\*4   = 136Mb  
+- 32x1024x1024  =>    32\*1024\*1024\*4  = 136Mb  
+- 64x1024x1024  =>    64\*1024\*1024\*4  = 268Mb   
 
 ### Num Levels
 

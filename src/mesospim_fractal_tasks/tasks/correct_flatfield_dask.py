@@ -43,7 +43,8 @@ from mesospim_fractal_tasks.utils.zarr_utils import (
     create_zarr_pyramid,
     _get_pyramid_structure,
     build_pyramid,
-    convert_ROI_table_to_indices)
+    convert_ROI_table_to_indices,
+    _copy_ngff_metadata)
 from mesospim_fractal_tasks.utils.parallelisation import (
     _set_dask_cluster, correct_per_channel)
 from mesospim_fractal_tasks import __version__, __commit__
@@ -646,17 +647,11 @@ def correct_flatfield(
         _copy_tables_from_zarr_url(str(zarr_path), str(new_zarr_path))
 
         # Copy NGFF metadata from the old zarr_url to the new zarr
-        logger.info(f"Copying NGFF metadata from {zarr_path.name}"
-                    f" to {new_zarr_path.name}.")
-        source_group = zarr.open_group(zarr_path, mode="r")
-        source_attrs = source_group.attrs.asdict()
-        image_name = source_attrs["multiscales"][0]["name"] + "_flatfield_corr"
-        source_attrs["multiscales"][0]["name"] = image_name
-        fractal_tasks = source_attrs.get("fractal_tasks", {})
-        task_dict = dict(
-            version=__version__.split("dev")[0][:-1],
-            commit=__commit__,
-            input_parameters=dict(
+        _copy_ngff_metadata(
+            source_zarr_path=zarr_path,
+            output_zarr_path=new_zarr_path,
+            fractal_task_name="correct_flatfield",
+            task_params=dict(
                 models_folder=models_folder,
                 resolution_level=resolution_level,
                 n_zplanes=n_zplanes,
@@ -665,12 +660,10 @@ def correct_flatfield(
                 FOV_list=FOV_list,
                 z_levels=z_levels,
                 save_models=save_models
-            )
+            ),
+            commit=__commit__,
+            version=__version__,
         )
-        fractal_tasks["correct_flatfield"] = task_dict
-        source_attrs["fractal_tasks"] = fractal_tasks # type: ignore
-        new_group = zarr.open_group(str(new_zarr_path), mode="a")
-        new_group.attrs.put(source_attrs)
 
         futures = []
         for channel_name, channel_idx in channel_dict.items():

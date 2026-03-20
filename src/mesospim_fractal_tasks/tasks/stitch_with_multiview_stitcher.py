@@ -278,15 +278,15 @@ def stitch_with_multiview_stitcher(
                          "max_workers": max_workers},
 
     logger.info(f"Starting fusing tiles...")
-    fusion.fuse(
-        sims,
-        transform_key=fusion_transform_key,
-        drop_t=True,
-        output_chunksize=fusion_chunksize_dict,
-        output_spacing=si_utils.get_spacing_from_sim(sims[0]),
-        output_zarr_url=str(output_zarr_path / "0"),
-        batch_options=batch_options
-    )
+    #fusion.fuse(
+    #    sims,
+    #    transform_key=fusion_transform_key,
+    #    drop_t=True,
+    #    output_chunksize=fusion_chunksize_dict,
+    #    output_spacing=si_utils.get_spacing_from_sim(sims[0]),
+    #    output_zarr_url=str(output_zarr_path / "0"),
+     #   batch_options=batch_options
+    #)
 
     # Open the zarr group (read/write)
     new_shape = zarr.open_array(output_zarr_path / "0").shape
@@ -311,7 +311,7 @@ def stitch_with_multiview_stitcher(
         output_zarr_path=output_zarr_path,
         fractal_task_name="stitch_with_multiview_stitcher",
         task_params=dict(
-            channel=channel,
+            channel=channel.get_omero_channel(zarr_path).label,
             registration_resolution_level=registration_resolution_level,
             registration_on_z_proj=registration_on_z_proj,
             registration_function=registration_function,

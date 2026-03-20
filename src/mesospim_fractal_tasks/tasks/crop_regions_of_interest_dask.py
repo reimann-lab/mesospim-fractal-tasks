@@ -54,17 +54,24 @@ def adapt_coordinates(
         scale (float): Pixel scale in um.
         table (pd.DataFrame): Original FOV ROI Table to be adapted.
     """
-    new_start_um = start * scale
-    new_end_um = end * scale
+    new_start_um = np.float32(start * scale)
+    new_end_um = np.float32(end * scale)
     table[f"pixel_size_{dim}"] = scale
+    tile_size = table[f"len_{dim}_micrometer"].unique()[0]
+
+    # Insert new start in table
+    value_to_replace = table[table[f"{dim}_micrometer"] <= new_start_um][f"{dim}_micrometer"].max()
+    table.loc[table[f"{dim}_micrometer"] == value_to_replace, f"{dim}_micrometer"] = new_start_um
+    
+    # Keep tiles that are contained in the crop
+    mask = (
+    (table[f"{dim}_micrometer"] >= new_start_um) &
+    (table[f"{dim}_micrometer"] < new_end_um))
+    table.drop(index=table.index[~mask], inplace=True)
+
+    # Reset it as the origin
     table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"] - new_start_um
-    table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"].clip(
-        lower=0, upper=(new_end_um-new_start_um))
-    if dim != "z":
-        table[f"{dim}_micrometer_original"] = (table[f"{dim}_micrometer_original"] - 
-                                               new_start_um)
-        table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"].clip(
-            lower=0, upper=(new_end_um-new_start_um))
+    
     dim_max = table[f"{dim}_micrometer"].max()
     if dim_max == (new_end_um-new_start_um):
         table.drop(table[table[f"{dim}_micrometer"] == dim_max].index, inplace=True)
@@ -78,6 +85,15 @@ def adapt_coordinates(
                                                 row[f"{dim}_micrometer"])
         table.loc[r,f"{dim}_pixel"] = int(round(table.loc[r, f"len_{dim}_micrometer"] 
                                                 / scale))
+        
+        # Reduce original position by the amount of the crop
+    if dim != "z":
+        tile_reduction = tile_size - table.iloc[0][f"len_{dim}_micrometer"]
+
+        min_start_original = table[f"{dim}_micrometer_original"].min()
+        
+        table.loc[table[f"{dim}_micrometer_original"] == min_start_original, 
+                  f"{dim}_micrometer_original"] = min_start_original + tile_reduction
     
 def adapt_roi_table(
     zarr_path: Path, 
@@ -138,28 +154,72 @@ def check_binary_compatibility(
     if modulo > 0:
         add_start = (2**power - modulo) // 2
         temp_start = round(slice_start / scale)
-        if add_start > temp_start:
-            add_start = temp_start
-        new_slice_start = temp_start - add_start
-        new_slice_end = round(slice_end / scale) + (2**power - modulo - add_start)
+        new_slice_start = temp_start + add_start
+        new_slice_end = round(slice_end / scale) - (2**power - modulo - add_start)
     else:
         new_slice_start = round(slice_start / scale)
         new_slice_end = round(slice_end / scale)
-    if new_slice_end > max_end:
-        diff = new_slice_end - slice_end
-        new_slice_end = max_end
-        add_start = 2**power - (diff % 2**power)
-        new_slice_start = new_slice_start - add_start
-        if new_slice_start < 0:
-            new_slice_start = 0
-            logger.warning(f"Crop is outside of array boundary. Keeping original size.")
         
     return int(new_slice_start), int(new_slice_end)
+
+def check_tile_size(
+    zarr_path, 
+    coords: dict[str, int]
+) -> dict[str, int]:
+    """
+    Check if the crop leaves tile of sufficient size to be later stitched.
+
+    Tiles have x % overlap, if the crop leaves a tile with a size smaller than 
+    this overlap, the tile is discarded as it doesn't contain relevant information.
+    
+    Parameters:
+        zarr_path (Path): Path to the OME-Zarr image.
+        coords (dict): Coordinates to adapt.
+
+    Returns:
+        dict: Adaptated coordinates.
+    """
+
+    # Load original table
+    source_table = ad.read_zarr(zarr_path/ "tables" / "FOV_ROI_table").to_df()
+
+    x_start, x_end = coords["x_start"], coords["x_end"]
+    y_start, y_end = coords["y_start"], coords["y_end"]
+
+    if x_end < x_start:
+        x_start, x_end = x_end, x_start
+    if y_end < y_start:
+        y_start, y_end = y_end, y_start
+    
+    closest_x_start = source_table[source_table["x_micrometer"] > x_start]["x_micrometer"].min()
+    closest_y_start = source_table[source_table["y_micrometer"] > y_start]["y_micrometer"].min()
+    closest_x_end = source_table[source_table["x_micrometer"] < x_end]["x_micrometer"].max()
+    closest_y_end = source_table[source_table["y_micrometer"] < y_end]["y_micrometer"].max()
+
+    x_tile_size = source_table["len_x_micrometer"].unique()[0]
+    y_tile_size = source_table["len_y_micrometer"].unique()[0]
+
+    x_overlap_size = (x_tile_size - source_table["x_micrometer_original"].sort_values().unique()[1])
+    y_overlap_size = (y_tile_size - source_table["y_micrometer_original"].sort_values().unique()[1])
+
+    if (closest_x_start - x_start) < x_overlap_size:
+        coords["x_start"] = closest_x_start 
+
+    if (closest_y_start - y_start) < y_overlap_size:
+        coords["y_start"] = closest_y_start 
+
+    if (x_end - closest_x_end) < x_overlap_size:
+        coords["x_end"] = closest_x_end
+
+    if (y_end - closest_y_end) < y_overlap_size:
+        coords["y_end"] = closest_y_end
+    
+    return coords
 
 def save_roi_parallel(
     zarr_path: Path,
     roi_id: str,
-    coords: dict[str, int],
+    coords: dict[str, float],
     scale: tuple[float, float, float],
     pyramid_dict: dict[str, dict],
     chunksize: tuple[int, int, int, int],
@@ -184,25 +244,33 @@ def save_roi_parallel(
     else:
         full_res_arr = da.from_zarr(zarr_path/"0")
     full_shape = full_res_arr.shape
-    z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
-                                                    coords['z_end'] + scale[0],
-                                                    full_shape[1], # type: ignore
-                                                    scale[0], 
-                                                    power=0)
-    y_start, y_end = check_binary_compatibility(max(coords['y_start'], 0),
-                                                    coords['y_end'] + scale[1], 
-                                                    full_shape[2], # type: ignore
-                                                    scale[1],
-                                                    power=len(pyramid_dict))
-    x_start, x_end = check_binary_compatibility(max(coords['x_start'], 0),
-                                                    coords['x_end'] + scale[2],
-                                                    full_shape[3], # type: ignore
-                                                    scale[2],
-                                                    power=len(pyramid_dict))
+
+    z_start, z_end = check_binary_compatibility(
+        max(coords['z_start'], 0),
+        coords['z_end'] + scale[0],
+        full_shape[1], # type: ignore
+        scale[0], 
+        power=0)
+    y_start, y_end = check_binary_compatibility(
+        max(coords['y_start'], 0),
+        coords['y_end'] + scale[1], 
+        full_shape[2], # type: ignore
+        scale[1],
+        power=len(pyramid_dict))
+    x_start, x_end = check_binary_compatibility(
+        max(coords['x_start'], 0),
+        coords['x_end'] + scale[2],
+        full_shape[3], # type: ignore
+        scale[2],
+        power=len(pyramid_dict))
 
     assert z_start < z_end
     assert y_start < y_end
     assert x_start < x_end
+
+    coords = dict(x_start=(x_start * scale[2]), x_end=x_end, 
+                  y_start=y_start, y_end=y_end, 
+                  z_start=z_start, z_end=z_end)
 
     # Crop region
     logger.info(f"Cropping ROI region from full resolution image at "
@@ -414,6 +482,7 @@ def crop_regions_of_interest(
                              "overwrite set to `False`. Try setting overwrite to `True`.")
                 raise FileExistsError
             roi_type = "is_crop"
+            roi_coords = check_tile_size(zarr_path, roi_row.to_dict())
         else:
             while roi_id in current_images and not overwrite:
                 logger.warning(f"ROI {roi_id} already exists in {zarr_path.parent.name} "
@@ -426,9 +495,9 @@ def crop_regions_of_interest(
                     roi_id = f"{prefix}roi_{suffix+1:02d}"
             current_images.append(roi_id)
             roi_type = "is_roi"
+            roi_coords = roi_row.to_dict()
         roi_path = Path(zarr_path.parent, str(roi_id))
         logger.info(f"New ROI will be saved with name {roi_id}.")
-        roi_coords = roi_row.to_dict()
         shape = (
             full_res_arr.shape[0], full_res_arr.shape[1], full_res_arr.shape[2], full_res_arr.shape[3])
         pyramid_dict = _estimate_pyramid_depth(

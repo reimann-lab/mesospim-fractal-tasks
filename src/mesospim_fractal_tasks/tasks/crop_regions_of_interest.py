@@ -32,129 +32,18 @@ from mesospim_fractal_tasks.utils.zarr_utils import (_determine_optimal_contrast
                                                      _store_label_to_zarr,
                                                      _write_label_metadata, 
                                                      _estimate_pyramid_depth)
+from mesospim_fractal_tasks.tasks.crop_regions_of_interest_dask import (
+    adapt_coordinates,
+    adapt_roi_table,
+    check_binary_compatibility,
+    check_tile_size,
+    save_roi_parallel,
+)
 from mesospim_fractal_tasks.utils.parallelisation import _set_dask_cluster
 from mesospim_fractal_tasks.utils.models import ProxyArray
 
 logger = logging.getLogger(__name__)
 
-def adapt_coordinates(
-    start: float, 
-    end: float, 
-    dim: str, 
-    scale: float, 
-    table: pd.DataFrame
-) -> None:
-    """
-    Adapt the entries of the FOV ROI table for the given coordinates per dimension.
-
-    Parameters:
-        start (float): New start pixel coordinate.
-        end (float): New end pixel coordinate.
-        dim (str): Dimension to adapt.
-        scale (float): Pixel scale in um.
-        table (pd.DataFrame): Original FOV ROI Table to be adapted.
-    """
-    new_start_um = start * scale
-    new_end_um = end * scale
-    table[f"pixel_size_{dim}"] = scale
-    table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"] - new_start_um
-    table[f"{dim}_micrometer"] = table[f"{dim}_micrometer"].clip(
-        lower=0, upper=(new_end_um-new_start_um))
-    if dim != "z":
-        table[f"{dim}_micrometer_original"] = (table[f"{dim}_micrometer_original"] - 
-                                               new_start_um)
-        table[f"{dim}_micrometer_original"] = table[f"{dim}_micrometer_original"].clip(
-            lower=0, upper=(new_end_um-new_start_um))
-    dim_max = table[f"{dim}_micrometer"].max()
-    if dim_max == (new_end_um-new_start_um):
-        table.drop(table[table[f"{dim}_micrometer"] == dim_max].index, inplace=True)
-    
-    dim_micrometers = sorted(table[f"{dim}_micrometer"].unique())
-    dim_micrometers.append(new_end_um-new_start_um)
-    dim_micrometers = np.array(dim_micrometers)
-    for r, row in table.iterrows():
-        i = np.argwhere(dim_micrometers == row[f"{dim}_micrometer"])[0][0]
-        table.loc[r,f"len_{dim}_micrometer"] = (dim_micrometers[i+1] - 
-                                                row[f"{dim}_micrometer"])
-        table.loc[r,f"{dim}_pixel"] = int(round(table.loc[r, f"len_{dim}_micrometer"] 
-                                                / scale))
-    
-def adapt_roi_table(
-    zarr_path: Path, 
-    roi_path: Path, 
-    coords: dict[str, int], 
-    scale: tuple[float, float, float]
-) -> pd.DataFrame:
-    """
-    Adapt the FOV ROI table to the new crop coordinates.
-
-    Parameters:
-        zarr_path (Path): Path to the OME-Zarr image.
-        roi_path (Path): Path to the ROI table.
-        coords (dict): Coordinates to adapt.
-        scale (tuple[float, float, float]): Pixel scale in um.
-
-    Returns:
-        pandas.DataFrame: Adaptated FOV ROI table.
-    """
-    logger.info(f"Adapting FOV ROI table to new crop coordinates for {roi_path}")
-
-    # Load original table
-    source_table = ad.read_zarr(zarr_path/ "tables" / "FOV_ROI_table").to_df()
-
-    # Update z, y, x coordinates
-    x_start, x_end = coords["x_start"], coords["x_end"]
-    y_start, y_end = coords["y_start"], coords["y_end"]
-    z_start, z_end = coords["z_start"], coords["z_end"]
-    adapt_coordinates(x_start, x_end, "x", scale[2], source_table)
-    adapt_coordinates(y_start, y_end, "y", scale[1], source_table)
-    adapt_coordinates(z_start, z_end, "z", scale[0], source_table)
-
-    # Update index
-    source_table.index = [i for i in range(len(source_table))]
-    return source_table
-
-def check_binary_compatibility(
-    slice_start: float, 
-    slice_end: float,
-    max_end: int,
-    scale: float,
-    power: int = 6
-) -> tuple[int, int]:
-    """
-    Check if the crop slices can be divided by a power of 2.
-    
-    Parameters:
-        slice_start (float): Beginning of slice in microns.
-        slice_end (float): End of slice in microns.
-        max_end (int): Maximum possible end of slice in px.
-        scale (float): Scale of the image.
-        power (int): Power of 2 to check (should match pyramid resolution).
-    
-    Returns:
-        tuple[int, int]: New slice start and end in pixels.
-    """
-    modulo = abs(round(slice_end / scale) - round(slice_start / scale)) % 2**power
-    if modulo > 0:
-        add_start = (2**power - modulo) // 2
-        temp_start = round(slice_start / scale)
-        if add_start > temp_start:
-            add_start = temp_start
-        new_slice_start = temp_start - add_start
-        new_slice_end = round(slice_end / scale) + (2**power - modulo - add_start)
-    else:
-        new_slice_start = round(slice_start / scale)
-        new_slice_end = round(slice_end / scale)
-    if new_slice_end > max_end:
-        diff = new_slice_end - slice_end
-        new_slice_end = max_end
-        add_start = 2**power - (diff % 2**power)
-        new_slice_start = new_slice_start - add_start
-        if new_slice_start < 0:
-            new_slice_start = 0
-            logger.warning(f"Crop is outside of array boundary. Keeping original size.")
-        
-    return int(new_slice_start), int(new_slice_end)
 
 @validate_call
 def crop_regions_of_interest(
@@ -195,6 +84,8 @@ def crop_regions_of_interest(
 
     # Read ROI coordinates
     coords = init_args["roi_coords"]
+    if init_args["crop_or_roi"] == "crop":
+        coords = check_tile_size(zarr_path, coords)
     roi_id = init_args["roi_id"]
     z_start, z_end = check_binary_compatibility(max(coords['z_start'], 0),
                                                 coords['z_end'] + scale[0],

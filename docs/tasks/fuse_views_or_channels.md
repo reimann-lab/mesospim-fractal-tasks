@@ -1,6 +1,6 @@
 # Fuse Views or Channels
 
-This task fuses multiple image sources (either channels acquired separately or multi-view acquisitions) into a single OME-Zarr image using [Multiview Stitcher]().
+This task fuses multiple image sources (either channels acquired separately or multi-view acquisitions) into a single OME-Zarr image using [Multiview Stitcher](https://github.com/multiview-stitcher/multiview-stitcher).
 
 Depending on the use case (channels or views fusion), fusion can be applied at different stages of the pipeline:
 

@@ -111,7 +111,7 @@ def get_channel_keys(
     print("Available channel settings keys:")
     for i, file in enumerate(src.glob("*.json")):
         file_name_parts = file.name.split("_")
-        print((f"Key {i}: {file_name_parts[2].replace('.json', '')}"))
+        print((f"Key: {file_name_parts[2].replace('.json', '')}"))
 
 def get_channel_key(
     key: str

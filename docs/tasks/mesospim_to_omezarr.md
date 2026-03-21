@@ -78,13 +78,20 @@ For example:
 
 ### Channel Color Settings
 
-There are default channel color settings saved in the package directory to define the color and naming of each channel based on the laser wavelength during acquisition. If you want to modify the available defaults and save your own channel color settings, you can provide a JSON file with the channel color definitions. The procedure is detailed [HERE](#channel-color-and-naming). You can select one of the default settings by providing its key in the parameters. You can also directly provide the path to compatible JSON file with your specific channel color definitions using this parameter.
+This parameter allows you to specify which channel color settings to use to properly view your OME-Zarr image using visualisation tool like napari. A channel color setting is a JSON file that lists the label, color and laser wavelength of the channels. You can provide either provide the path to the JSON file or use the name of a default settings provided with the package:
 
-For example:
+        Name of a channel settings:        Channel Color File = `default` or `v0` or ...
 
-        Channel Color File = `default` or `v0` or ...
+        Path to a channel settings file:   Channel Color File = `path_to/my_custom_channels.json`
 
-        Channel Color File = `path_to/my_custom_channels.json`
+In case you want to view or edit the default channel settings, you can use the following procedure depending on your use case:
+
+- If you are running the task locally, you can follow the procedure detailed [HERE](#channel-color-and-naming) to view the available channel settings and/or register a new channel settings among the default ones.
+
+- If you are using the user interface, refer to its [documentation](https://reimann-lab.github.io/skinnervation3d-app/usage/#channel-settings) for more information on how to set channel settings.
+
+- If running the task on Fractal, you can see the default settings [HERE](https://github.com/reimann-lab/mesospim-fractal-tasks/blob/main/src/mesospim_fractal_tasks/settings). The name of the settings is in the name of the JSON file. There is no possibility to add a new default setting on Fractal. You can however provide the path to a compatible JSON file saved with your specific channel color definitions. To obtain a JSON file template, you can download it from the [package directory](https://github.com/reimann-lab/mesospim-fractal-tasks/blob/main/src/mesospim_fractal_tasks/cli/templates/channel_setting_template.json).
+
 
 
 ### Chunksize
@@ -114,7 +121,7 @@ Here is a video with a good visual explanation about the OME-Zarr structure such
 ## Channel Color and Naming
 
 The task will assign channel names and colors based on a JSON file. There is a default template that is provided to set
-custom channel settings. 
+custom channel settings. If you are running the task locally, you can register your channel color settings as default in the package settings directory using the following procedure. 
 
 Here is the procedure to view the current available default settings:
     
@@ -139,7 +146,7 @@ recurring use.
 
 1. Obtain the channel settings template  
 
-    In a shell, in the package directory, run:  
+    In a shell, in the package directory, run:
 
         copy-channel-template
 
@@ -152,8 +159,9 @@ recurring use.
     You can provide the path to this file to the task in the parameters to use these channel settings. In case of
     recurring use, you can register the settings as default in the package settings directory (see below).
 
-3. Register the channel settings (Optional)
+3. Register the channel settings (Optional, only for local run usage)
 
+    If you have installed the task package locally you can register your new settings so that you can reuse it without entering again all the settings details. 
     To make your JSON file available to the conversion task as the default setting, run:  
 
         set-channel-setting my_custom_channels.json 

@@ -139,7 +139,7 @@ def _update_channels_metadata(
 def find_zarr_images(
     ref_zarr_path: Path,
     mode: str,
-) -> tuple[list[Path | str], str]:
+) -> tuple[list[Path], str]:
     
     image_name = ref_zarr_path.name
     
@@ -169,7 +169,7 @@ def find_zarr_images(
 
 def find_common_name(
     common_name: str | None,
-    zarr_image_paths: list[Path | str],
+    zarr_image_paths: list[Path],
     mode: str,
 ) -> str:
     if common_name is None:
@@ -407,8 +407,8 @@ def copy_roi_tables(
 def fuse_views_or_channels(
     *,
     zarr_url: str,
-    output_zarr_name: Optional[str | Path] = None,
-    zarr_image_paths: Optional[list[Path | str]] = None,
+    output_zarr_name: Optional[str] = None,
+    zarr_image_paths: Optional[list[str]] = None,
     registration_channel: Optional[StitchingChannelInputModel] = None,
     registration_resolution_level: Optional[int] = None,
     registration_on_z_proj: bool = False,
@@ -419,15 +419,45 @@ def fuse_views_or_channels(
     overwrite: bool = False,
 ) -> dict[str, list]:
     """
-    Register two OME-Zarr views and fuse them into one OME-Zarr.
+    Register two OME-Zarr views or channels and fuse them into one OME-Zarr.
 
-    Assumptions:
-    - All views share the same name and are differentiated by a numbering suffix: e.g. 
-        common_name_1, common_name_2, common_name_3, or common_name1, common_name2, etc.
-    - Both input images contain the same channels in the same order.
-    - Registration is estimated on `registration_channel`.
-    - Fusion is then applied channel-by-channel using the same transform.
+    Parameters:
+        zarr_url: Absolute path to the OME-Zarr image.
+        output_zarr_name: Name for the output OME-Zarr.
+        zarr_image_paths: List of absolute paths to the OME-Zarr images to fuse.
+        registration_channel: Channel for registration; requires either
+            `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not
+            both.
+        registration_resolution_level: Resolution level to use for registration.
+            Recommended to set the lowest level possible, e.g. 5 (highest is 0).
+            If None, the lowest resolution level available will be used for registration.
+            Default: None.
+        registration_on_z_proj: Whether to perform registration on a maximum
+            projection along z in case of 3D data. Recommended when memory is
+            limited but results are generally less good. Default: False.
+        registration_function: Type of transformation to use for registration.
+            Available functions:
+            - 'phase_correlation'
+            - 'antspy': see ANTsPy documentation for more information.
+            Default: 'phase_correlation'.
+        transform_type: Type of transformation to use for registration.
+            Available types:
+            - 'translation': translation
+            - 'rigid': rigid body transformation
+            - 'similarity': similarity transformation
+            - 'affine': affine transformation
+            Default: 'translation'.
+        max_workers: Maximum number of workers to process blocks in parallel. Should not
+            be more than number of available workers. If set to one, it falls back to
+            sequential processing. Default: 4.
+        fusion_chunksize: Chunksize for the dimension (Z, Y, X) to use when performing
+            the fusion. It impacts the memory usage and the time to fuse the tiles. It
+            also corresponds to the chunksize of the output zarr. Setting smaller chunks
+            can reduce memory usage but increase the time to fuse the tiles.
+            If None, the chunksize of the raw image is used. Default: None.
+        overwrite: If `True`, existing output zarr will be overwritten. Default: False.
     """
+
     if registration_channel is None:
         mode = "channels"
     else:
@@ -436,13 +466,13 @@ def fuse_views_or_channels(
 
     common_name = None
     if zarr_image_paths == None:
-        zarr_image_paths, common_name = find_zarr_images(ref_zarr_path, mode)
+        zarr_image_path_list, common_name = find_zarr_images(ref_zarr_path, mode)
     else:
-        zarr_image_paths = [Path(zarr_path) for zarr_path in zarr_image_paths]
+        zarr_image_path_list = [Path(zarr_path) for zarr_path in zarr_image_paths]
     
     if output_zarr_name is None:
-        output_zarr_name = find_common_name(common_name, zarr_image_paths, mode)
-    output_zarr_name = Path(output_zarr_name).with_suffix(".zarr")
+        output_zarr_name = find_common_name(common_name, zarr_image_path_list, mode)
+    output_zarr_name = str(Path(output_zarr_name).with_suffix(".zarr"))
     output_zarr_path = Path(ref_zarr_path.parents[1], output_zarr_name, ref_zarr_path.name)
     if output_zarr_path.exists() and not overwrite:
         raise ValueError(f"Output zarr {output_zarr_name} already exists in "
@@ -450,10 +480,10 @@ def fuse_views_or_channels(
                          "Hint: try setting overwrite=True if you want to overwrite it.")
     elif (output_zarr_path.exists() or output_zarr_path.parent.exists()) and overwrite:
         shutil.rmtree(output_zarr_path.parent)
-        if output_zarr_path in zarr_image_paths:
-            zarr_image_paths.remove(output_zarr_path)
+        if output_zarr_path in zarr_image_path_list:
+            zarr_image_path_list.remove(output_zarr_path)
     
-    for path in zarr_image_paths:
+    for path in zarr_image_path_list:
         if not path.exists():
             raise ValueError(f"Could not find {path.name} in {path.parent.name}.")
 
@@ -467,12 +497,12 @@ def fuse_views_or_channels(
 
     if registration_resolution_level is None:
         registration_resolution_levels = []
-        for path in zarr_image_paths:
+        for path in zarr_image_path_list:
             path_meta = load_NgffImageMeta(str(path))
             registration_resolution_levels.append(path_meta.num_levels - 1)
         registration_resolution_level = min(registration_resolution_levels)
     else:
-        for path in zarr_image_paths:
+        for path in zarr_image_path_list:
             path_meta = load_NgffImageMeta(str(path))
             if path_meta.num_levels - 1 < registration_resolution_level:
                 raise ValueError(f"All {mode} must have the "
@@ -484,7 +514,7 @@ def fuse_views_or_channels(
         reg_channel_index = 0
 
     logger.info(f"Loading the {mode} with resolution level {registration_resolution_level}.")
-    xim_reg_list = [_load_xim(zarr_path, resolution=registration_resolution_level) for zarr_path in zarr_image_paths]
+    xim_reg_list = [_load_xim(zarr_path, resolution=registration_resolution_level) for zarr_path in zarr_image_path_list]
     if mode == "channels":
         fake_channel_name = xim_reg_list[0].coords["c"].data
         for i, xim_reg in enumerate(xim_reg_list):
@@ -504,7 +534,7 @@ def fuse_views_or_channels(
         logger.info("Found FOV_ROI_table in the reference zarr, "
                     "assuming a multi-FOV dataset and using it for registration.")
         
-        for zarr_path in zarr_image_paths:
+        for zarr_path in zarr_image_path_list:
             fov_roi_df = ad.read_zarr(Path(zarr_path, "tables/FOV_ROI_table")).to_df()
             for dim in ["z", "y", "x"]:
                 fov_roi_df[f"{dim}_micrometer_original"] = fov_roi_df[f"{dim}_micrometer"]
@@ -553,7 +583,7 @@ def fuse_views_or_channels(
 
     logger.info("Starting fusing {mode}...")
     prepare_and_fuse(
-        zarr_image_paths=zarr_image_paths,
+        zarr_image_paths=zarr_image_path_list,
         msims_reg_list=msims_reg_list,
         registration_on_z_proj=registration_on_z_proj,
         fusion_chunksize_dict=fusion_chunksize_dict,
@@ -568,11 +598,11 @@ def fuse_views_or_channels(
     
     # Copy NGFF metadata from the old zarr_url to the new zarr
     _copy_ngff_metadata(
-        source_zarr_path=zarr_image_paths[0],
+        source_zarr_path=zarr_image_path_list[0],
         output_zarr_path=output_zarr_path,
         fractal_task_name="fuse_views_or_channels",
         task_params=dict(
-            zarr_image_paths=[zarr_image_path.parent.name + "/" + zarr_image_path.name for zarr_image_path in zarr_image_paths],
+            zarr_image_paths=[zarr_image_path.parent.name + "/" + zarr_image_path.name for zarr_image_path in zarr_image_path_list],
             registration_channel=registration_channel.label if registration_channel else None,
             registration_resolution_level=registration_resolution_level,
             registration_on_z_proj=registration_on_z_proj,
@@ -587,10 +617,10 @@ def fuse_views_or_channels(
 
     # Copy all channels metadata in channels mode
     if mode == "channels":
-        _update_channels_metadata(zarr_image_paths, output_zarr_path)
+        _update_channels_metadata(zarr_image_path_list, output_zarr_path)
     
     # Copy original metadata
-    for i, source_zarr_path in enumerate(zarr_image_paths):
+    for i, source_zarr_path in enumerate(zarr_image_path_list):
         shutil.copyfile(source_zarr_path /".zattrs", output_zarr_path /f".{mode[:-1]}_{i}_zattrs")
 
     copy_roi_tables(
@@ -629,20 +659,4 @@ def fuse_views_or_channels(
 if __name__ == "__main__":
     from fractal_task_tools.task_wrapper import run_fractal_task
 
-    # Change manually depending on which task you want to expose in the manifest
-    #run_fractal_task(task_function=fuse_views_or_channels)
-    channel = StitchingChannelInputModel(label="PGP9.5")
-    fuse_views_or_channels(
-        zarr_url="data/Multitile/view_a.zarr/raw_image",
-        #output_zarr_name="test",
-        #zarr_image_paths=["data/Multitile/IENFD25-6-1/IENFD25-6-1_fiber_pgp.zarr/raw_image",
-        #                   "data/Multitile/IENFD25-6-1/IENFD25-6-1_fiber_lectin.zarr/raw_image"],
-        registration_channel=channel,
-        registration_resolution_level=None,
-        registration_on_z_proj=False,
-        registration_function="phase_correlation",
-        transform_type="translation",
-        max_workers=2,
-        fusion_chunksize=None,
-        overwrite=True
-    )
+    run_fractal_task(task_function=fuse_views_or_channels)

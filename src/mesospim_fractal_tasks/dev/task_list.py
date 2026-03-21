@@ -69,6 +69,16 @@ TASK_LIST = [
         category="Image Processing",
         modality="lightsheet"
     ),
+    ParallelTask(
+        name="Fuse Views or Channels",
+        input_types=dict(fused=False),
+        executable="tasks/fuse_views_or_channels.py",
+        output_types=dict(fused=True),
+        meta={"cpus_per_task": 8, "mem": 20000},
+        tags=["Fusion", "Views", "Channels", "Multiview Stitcher"],
+        category="Image Processing",
+        modality="lightsheet"
+    ),
     ConverterNonParallelTask(
         name="Prepare mesoSPIM OME-Zarr",
         executable="tasks/prepare_mesospim_omezarr.py",

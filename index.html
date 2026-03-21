@@ -831,7 +831,8 @@
 <a href="https://mesospim.org"><strong>mesoSPIM 3D fluorescence microscopy data</strong></a>.</p>
 <p>It currently offers tasks for:</p>
 <ul>
-<li>Converting mesoSPIM raw 3D stacks to <a href="https://ngff.openmicroscopy.org/"><strong>OME-Zarr</strong></a> (currently in TIFF, H5, RAW)</li>
+<li>Converting mesoSPIM raw 3D stacks to <a href="https://ngff.openmicroscopy.org/"><strong>OME-Zarr</strong></a> (currently for TIFF, H5, RAW images)</li>
+<li>Importing an existing mesoSPIM OME-Zarr dataset and preparing it for processing</li>
 <li>Illumination correction:  <ul>
 <li>Flatfield</li>
 <li>Z-intensity correction</li>
@@ -839,6 +840,7 @@
 </ul>
 </li>
 <li>Multitile stitching</li>
+<li>View or channel fusion</li>
 <li>ROI cropping from large 3D OME-Zarr datasets</li>
 </ul>
 <p>These tasks are intended to run on the <a href="https://fractal-analytics-platform.github.io/"><strong>Fractal Analytics Platform</strong></a>, where they can be integrated into scalable workflows and executed efficiently on a cluster environment. However, all tasks can also be executed <strong>locally and individually</strong> on a single machine using standard shell commands, without requiring a full Fractal deployment. Instructions for running tasks manually are provided in the <a href="usage/">Usage</a> section.</p>

@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -871,6 +871,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive_or_dearchive_omezarr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive or Dearchive OME-Zarr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fuse_views_or_channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fuse Views or Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -972,13 +1028,15 @@ The task can be used in two ways:</p>
 </code></pre></div>
 
 <h3 id="chunksize">Chunksize<a class="headerlink" href="#chunksize" title="Permanent link">&para;</a></h3>
-<p>The OME-Zarr stores image data in chunks and at several resolution levels in a so-called pyramid of multi-resolution. The chunksize parameter allows you to set the size of the chunks in pixels. It is recommended to keep the size of the chunks small to avoid memory issues, but not too small to reduce the overhead of storing the data in OME-Zarr. The size should be around 100Mb-1Gb, see <a href="https://blog.dask.org/2021/11/02/choosing-dask-chunk-sizes">this article</a> for more infos.<br />
-You can compute the size of the chunksize by multiplying their values and by the byte size (for mesoSPIM image data it is typically 2, but prefer 4 to comply with analysis tasks).  Furthermore, the chunksize should be set to a value that is a power of 2, e.g. 64, 128, 512... The chunksize impacts how fast the OME-Zarr can be viewed but also the memory requirements to process it. There are three required numbers to provide, one for each axis in the order <code>Z</code>, <code>Y</code>, and <code>X</code>. The <code>Z</code> axis is often smaller than the other two, so it is recommended to provide a smaller chunksize for it. </p>
+<p>The OME-Zarr stores image data in chunks and at several resolution levels in a so-called pyramid of multi-resolution. The chunksize parameter allows you to set the size of the chunks in pixels. It is recommended to keep the size of the chunks small to avoid memory issues, but not too small to reduce the overhead of storing the data in OME-Zarr. The size should be around 100Mb-1Gb, see <a href="https://blog.dask.org/2021/11/02/choosing-dask-chunk-sizes">this article</a> for more infos. You can compute the size of the chunksize by multiplying their values and by the byte size (for mesoSPIM image data it is typically 2, but it is recommended to use 4 due to the analysis tasks that internally uses a bigger byte size). </p>
+<p>Furthermore, the chunksize should be set to a value that is a power of 2, e.g. 64, 128, 512... The chunksize impacts how fast the OME-Zarr can be viewed but also the memory requirements to process it. There are three required numbers to provide, one for each axis in the order <code>Z</code>, <code>Y</code>, and <code>X</code>. The <code>Z</code> axis is often smaller than the other two, so it is recommended to provide a smaller chunksize for it. </p>
 <p>Here is a video with a good visual explanation about the OME-Zarr structure such as the pyramid of resolution and the chunks (first 15min): <a href="https://www.youtube.com/watch?v=RlvJXqKjmek">Handling huge imaging data with OME-Zarr</a></p>
-<p>Typical values examples:
-- 128x512x512 (~136Mb)
-- 32x1024x1024 (~136Mb)
-- 64x1024x1024 (~268Mb)</p>
+<p>Typical values examples: </p>
+<ul>
+<li>128x512x512   =&gt;    128*512*512*4   = 136Mb  </li>
+<li>32x1024x1024  =&gt;    32*1024*1024*4  = 136Mb  </li>
+<li>64x1024x1024  =&gt;    64*1024*1024*4  = 268Mb   </li>
+</ul>
 <h3 id="num-levels">Num Levels<a class="headerlink" href="#num-levels" title="Permanent link">&para;</a></h3>
 <p>The core idea of the OME-Zarr file format is to store the image data in a pyramid of multi-resolution. This allows to view large images without loading the entire dataset in memory. The pyramid is built progressively, starting from the highest resolution (raw data) and decreasing the resolution by a factor of two or more at each level. Often when viewing the full size image (raw data), we do not need a high level of details for the full image at once (the display cannot even handle so many pixels). Therefore, the pyramid allows us to display the image at different levels of detail, each one corresponding to a different resolution, depending on the zoom into the image. It is similar to the google maps experience.</p>
 <p>This parameter allows you to specify explicitly how many pyramid levels to build. By default, the task will try to estimate the optimal number of levels based on the size of the image so that it can be viewed in 3D on a normal computer. If you have a more performant computer, you can decrease the number of levels to have a better 3D experience.</p>

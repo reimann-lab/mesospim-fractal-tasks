@@ -25,7 +25,7 @@
       
       
       <link rel="icon" href="../../assets/images/favicon.png">
-      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.5">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
@@ -827,6 +827,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../archive_or_dearchive_omezarr/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Archive or Dearchive OME-Zarr
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../fuse_views_or_channels/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Fuse Views or Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -894,6 +950,10 @@
 <p>The task can be run in parallel over all the chunks of the image. This parameter allows you to set the maximum number of workers to use for the registration. It cannot be higher than the number of cores of your machine. Increasing this number can also lead to memory overflow. There is a trade-off between the number of workers and the memory usage.</p>
 <h3 id="fusion-chunksize">Fusion Chunksize<a class="headerlink" href="#fusion-chunksize" title="Permanent link">&para;</a></h3>
 <p>The task fuses the tiles into a single image and do so per chunk. By default, it takes the chunksize of the original image. If this is too large, it can lead to memory overflow. You can set a smaller chunksize to reduce memory usage. However, this increases the time to fuse the tiles.</p>
+<p>It is recommended to set a smaller chunksize than the original image chunksize. This improves the visualization experience of the fused image. For example:</p>
+<ul>
+<li>If the original image chunksize is (64, 1024, 1024), a chunksize of (32, 512, 512) or (32, 256, 256) can be used.</li>
+</ul>
 <hr />
 <h2 id="local-run-command">Local Run Command<a class="headerlink" href="#local-run-command" title="Permanent link">&para;</a></h2>
 <div class="codehilite"><pre><span></span><code>python<span class="w"> </span>run_stitching.py<span class="w"> </span>

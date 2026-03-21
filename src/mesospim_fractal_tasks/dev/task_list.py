@@ -7,7 +7,7 @@ from fractal_task_tools.task_models import (
 )
 
 AUTHORS = "Giliane Rochat"
-DOCS_LINK = None
+DOCS_LINK = "https://reimann-lab.github.io/mesospim-fractal-tasks/"
 INPUT_MODELS = [["mesospim_fractal_tasks", "utils/models.py", "BaSiCPyModelParams"],]
 
 TASK_LIST = [

@@ -110,7 +110,8 @@
         "type": "object",
         "title": "MesospimToOmezarr"
       },
-      "docs_info": "## mesospim_to_omezarr\nConvert mesoSPIM data (TIFFs or H5) to an OME-Zarr.\n"
+      "docs_info": "## mesospim_to_omezarr\nConvert mesoSPIM data (TIFFs or H5) to an OME-Zarr.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Perform Flatfield Correction",
@@ -293,7 +294,8 @@
         "type": "object",
         "title": "CorrectFlatfield"
       },
-      "docs_info": "## init_correct_flatfield\nInitialized BaSiCPy illumination correction task\n\nThis task prepares a parallelization list of all zarr_urls that need to be\nused to perform illumination correction with BaSiCPy.\n## correct_flatfield\nPerform flatfield (and darkfield) correction using either BaSiCPy or empty FOVs \nfor each channel label or wavelength.\n"
+      "docs_info": "## init_correct_flatfield\nInitialized BaSiCPy illumination correction task\n\nThis task prepares a parallelization list of all zarr_urls that need to be\nused to perform illumination correction with BaSiCPy.\n## correct_flatfield\nPerform flatfield (and darkfield) correction using either BaSiCPy or empty FOVs \nfor each channel label or wavelength.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Perform Global Illlumination Correction",
@@ -377,7 +379,8 @@
         "type": "object",
         "title": "CorrectIllumination"
       },
-      "docs_info": "## init_correct_illumination\nInitializes illumination correction task.\n## correct_illumination\nPerform a global illumination correction on a multi-channel OME-Zarr image. \n\nThe task estimates correction coefficients per tile to normalize the global illumination \nacross all tiles. Additionally, it can perform a z-correction to compensate for \nZ band artifacts.\n"
+      "docs_info": "## init_correct_illumination\nInitializes illumination correction task.\n## correct_illumination\nPerform a global illumination correction on a multi-channel OME-Zarr image. \n\nThe task estimates correction coefficients per tile to normalize the global illumination \nacross all tiles. Additionally, it can perform a z-correction to compensate for \nZ band artifacts.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Crop Regions of Interest",
@@ -497,7 +500,8 @@
         "type": "object",
         "title": "CropRegionsOfInterest"
       },
-      "docs_info": "## init_crop_regions_of_interest\nInitialise the parallelisation list for `Crop Regions of Interest Task`.\n\nThis task prepares a parallelization list of all rois that are to be\ncropped from a given Zarr image.\n## crop_regions_of_interest\nCrop regions of interest from a multi-channel OME-Zarr image. It loads the full\nresolution image, crops the ROI, and saves it in the same well.\n"
+      "docs_info": "## init_crop_regions_of_interest\nInitialise the parallelisation list for `Crop Regions of Interest Task`.\n\nThis task prepares a parallelization list of all rois that are to be\ncropped from a given Zarr image.\n## crop_regions_of_interest\nCrop regions of interest from a multi-channel OME-Zarr image. It loads the full\nresolution image, crops the ROI, and saves it in the same well.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Stitch with Multiview Stitcher",
@@ -636,7 +640,8 @@
         "type": "object",
         "title": "StitchWithMultiviewStitcher"
       },
-      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n"
+      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Modify OME-Zarr structure",
@@ -771,7 +776,8 @@
         "type": "object",
         "title": "StitchWithMultiviewStitcher"
       },
-      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n"
+      "docs_info": "## stitch_with_multiview_stitcher\nStitches FOVs from an OME-Zarr image.\n\nPerforms registration and fusion of FOVs indicated\nin the FOV_ROI_table of the OME-Zarr image. Writes the\nfused image back to a \"fused\" group in the same Zarr array.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     },
     {
       "name": "Prepare mesoSPIM OME-Zarr",
@@ -866,7 +872,8 @@
         "type": "object",
         "title": "PrepareMesospimOmezarr"
       },
-      "docs_info": "## prepare_mesospim_omezarr\nCreate a tiny proxy OME-Zarr-like directory on disk to insure compatibility between analysis pipeline and\nthe OME-Zarr structure output by mesoSPIM.\n"
+      "docs_info": "## prepare_mesospim_omezarr\nCreate a tiny proxy OME-Zarr-like directory on disk to insure compatibility between analysis pipeline and\nthe OME-Zarr structure output by mesoSPIM.\n",
+      "docs_link": "https://reimann-lab.github.io/mesospim-fractal-tasks/"
     }
   ],
   "has_args_schemas": true,

@@ -52,6 +52,7 @@ nav:
       - ROI Cropping: tasks/crop_regions_of_interest.md
       - Modify OME-Zarr Structure : tasks/modify_omezarr_structure.md
       - Archive or Dearchive OME-Zarr: tasks/archive_or_dearchive_omezarr.md
+      - Fuse Views or Channels: tasks/fuse_views_or_channels.md
   - API: api.md
 
 plugins:

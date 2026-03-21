@@ -24,6 +24,10 @@ The task can be run in parallel over all the chunks of the image. This parameter
 
 The task fuses the tiles into a single image and do so per chunk. By default, it takes the chunksize of the original image. If this is too large, it can lead to memory overflow. You can set a smaller chunksize to reduce memory usage. However, this increases the time to fuse the tiles.
 
+It is recommended to set a smaller chunksize than the original image chunksize. This improves the visualization experience of the fused image. For example:
+
+- If the original image chunksize is (64, 1024, 1024), a chunksize of (32, 512, 512) or (32, 256, 256) can be used.
+
 ---    
 
 ## Local Run Command

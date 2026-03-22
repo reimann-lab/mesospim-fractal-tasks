@@ -146,11 +146,18 @@ def find_zarr_images(
     # Search in parent directories for the views to register
     if ref_zarr_path.parent.stem[-1].isdigit():
         
-        common_name = ref_zarr_path.parent.stem[:-1]
+        common_name = ref_zarr_path.parent.stem[:-1].lower()
         while common_name[-1].isdigit():
             common_name = common_name[:-1]
         if common_name[-3:] == "_sh" or common_name[-3:] == "_ch":
             common_name = common_name[:-3]
+        elif common_name[-4:] == "_sh_" or common_name[-4:] == "_ch_":
+            common_name = common_name[:-4]
+        elif common_name[-6:] == "_view_":
+            common_name = common_name[:-6]
+        elif common_name[-5:] == "_view":
+            common_name = common_name[:-5]
+        
         if common_name[-1] == "_":
             common_name = common_name[:-1]
 
@@ -178,7 +185,7 @@ def find_common_name(
         if common_name == "":
             raise ValueError("Could not determine a common prefix between the view filenames."
                                 "Either provide the output_zarr_name or make sure all views share a common prefix.")
-        if common_name[-3:] == "_sh" or common_name[-3:] == "_ch":
+        if common_name[-3:].lower() == "_sh" or common_name[-3:].lower() == "_ch":
             common_name = common_name[:-3]
         if common_name[-1] == "_":
             common_name = common_name[:-1]
@@ -367,6 +374,8 @@ def prepare_and_fuse(
     else:
         logger.info(f"Fusing views...")
         ch_batch_options = batch_options
+        if type(all_sims[0]) is list:
+            all_sims = [sim for sims in all_sims for sim in sims]
         fusion.fuse(
             all_sims,
             transform_key=DEFAULT_REGISTERED_TRANSFORM_KEY,

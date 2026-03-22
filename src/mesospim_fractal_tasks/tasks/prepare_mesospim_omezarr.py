@@ -94,7 +94,7 @@ def find_per_tile_omezarr(
     Find tile stores. Returns a dataframe with at least:
       tile_id, channel, store_relpath
 
-    Assumes naming: <root_zarr_name>*_Tile{t}_Ch{c}_*.ome.zarr_meta.txt.
+    Assumes naming: <root_zarr_name>*_Tile{t}_Ch{c}_Sh{s}*.ome.zarr_meta.txt.
     """
 
     # Quick check if number of metadata files matches number of tiles
@@ -112,6 +112,10 @@ def find_per_tile_omezarr(
         metadata_dict = read_metadata_file(p)
         metadata_dict["tile_id"] = int(m.group(1))
         channel = int(m.group(2))
+        view = 0
+        if "_sh" in tile_omezarr_name.lower():
+            view = int(tile_omezarr_name.lower().split("_sh")[1][0])
+        metadata_dict["view"] = view
         if channel != int(metadata_dict["laser"]):
             raise ValueError("Channel in filename and laser wavelength referenced in metadata do not match.")
         metadata_dict["tile_omezarr"] = tile_omezarr_name
@@ -125,6 +129,12 @@ def find_per_tile_omezarr(
 
     meta_df = pd.DataFrame(rows)
     meta_df.rename(columns={"laser": "channel"}, inplace=True)
+
+    n_channels = meta_df["channel"].unique().shape[0]
+    n_views = meta_df["view"].unique().shape[0]
+    
+    logger.info(f"Found {n_channels} channels and {n_views} views in {zarr_dir}.")
+    logger.info(f"Found {int(len(rows) // (n_channels * n_views))} tiles per channel and view.")
 
     # Correct dtypes
     meta_df[["intensity",
@@ -141,16 +151,18 @@ def find_per_tile_omezarr(
     meta_df[["x_n_pixels",
             "y_n_pixels",
             "z_n_pixels",
-            "channel"]] = meta_df[["x_n_pixels",
+            "channel",
+            "view"]] = meta_df[["x_n_pixels",
                                     "y_n_pixels",
                                     "z_n_pixels",
-                                    "channel"]].astype("int")
+                                    "channel",
+                                    "view"]].astype("int")
     if meta_df.loc[0, "intensity"] > 1: # type: ignore
         meta_df["intensity"] = meta_df["intensity"] / 100
 
     # Check for missing values in required columns
     required_columns = ["channel", "x_scale", "y_scale", "z_scale", "x_n_pixels",
-                        "y_n_pixels", "z_n_pixels", "x_pos", "y_pos", "filter"]
+                        "y_n_pixels", "z_n_pixels", "x_pos", "y_pos", "filter", "view"]
     nan_cols = [c for c in required_columns if meta_df[c].isna().any()]
     if nan_cols:
         rows = meta_df[meta_df[nan_cols].isna().any(axis=1)]
@@ -158,7 +170,6 @@ def find_per_tile_omezarr(
             f"Metadata contains missing values in required fields: {nan_cols}\n"
             f"Problematic rows:\n{rows}"
         )
-
     return meta_df
 
 def build_fov_roi_table(
@@ -328,7 +339,7 @@ def prepare_mesospim_omezarr(
     num_levels: Optional[int] = None,
     chunksize: DimTuple = DimTuple(z=64, y=1024, x=1024),
     overwrite: bool = False
-) -> None:
+) -> list[dict[str, Any]]:
     """
     Create a tiny proxy OME-Zarr-like directory on disk to insure compatibility between analysis pipeline and
     the OME-Zarr structure output by mesoSPIM.
@@ -369,89 +380,117 @@ def prepare_mesospim_omezarr(
     # Create fake ome zarr image for compatibility
     if zarr_name is None:
         zarr_name = root_omezarr.name.split("_Mag")[0]
-    fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
-    fake_root = zarr.open_group(fake_zarr_path, mode="a")
-    image_name = "fake_raw_image"
-    fake_image_group = fake_root.create_group(image_name, overwrite=overwrite)
 
     # Discover tile stores and build metadata df
     meta_df = find_per_tile_omezarr(zarr_dir, root_omezarr)
 
-    # Check the congruency of x and y number of pixels
-    check_n_pixels(meta_df)
+    nb_views = meta_df["view"].unique().shape[0]
+    if nb_views == 1:
+        logger.info("Creating fake raw_image...")
+        fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
+    else:
+        fake_zarr_path = Path(zarr_dir, zarr_name + "view_0.zarr")
+    image_list_updates = []
+    for view in range(nb_views):
+        if nb_views > 1:
+            logger.info(f"Creating fake raw_image for view {view+1}/{nb_views}...")
+        fake_root = zarr.open_group(fake_zarr_path, mode="a")
+        image_name = "fake_raw_image"
+        fake_image_group = fake_root.create_group(image_name, overwrite=overwrite)
+        
+        view_df = meta_df[meta_df["view"] == view].copy()
+        view_df = view_df.reset_index(drop=True)
 
-    # Rebuild ROI df and AnnData tables
-    roi_df = build_fov_roi_table(meta_df, root_omezarr)
-    fov_roi_table = prepare_FOV_ROI_table(roi_df)
-    well_roi_table = prepare_well_ROI_table(roi_df)
 
-    # Write AnnData tables into the `tables` zarr group
-    write_table(
-        fake_image_group,
-        "FOV_ROI_table",
-        fov_roi_table,
-        overwrite=True,
-        table_attrs={"type": "roi_table"},
-    )
-    write_table(
-        fake_image_group,
-        "well_ROI_table",
-        well_roi_table,
-        overwrite=True,
-        table_attrs={"type": "roi_table"},
-    )
+        # Check the congruency of x and y number of pixels
+        check_n_pixels(view_df)
 
-    # Write multiscales metadata
-    source_file_name = root_omezarr.name
-    scale = (float(meta_df.loc[0, "z_scale"]), float(meta_df.loc[0, "y_scale"]), float(meta_df.loc[0, "x_scale"]))
-    nb_channels = len(meta_df["channel"].unique())
-    final_y_pixels = int(meta_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0])
-    final_x_pixels = int(meta_df.groupby("x_pos")["x_n_pixels"].unique().sum()[0])
-    shape = (nb_channels, int(meta_df.loc[0, "z_n_pixels"]), final_y_pixels, final_x_pixels)
+        # Rebuild ROI df and AnnData tables
+        roi_df = build_fov_roi_table(view_df, root_omezarr)
+        fov_roi_table = prepare_FOV_ROI_table(roi_df)
+        well_roi_table = prepare_well_ROI_table(roi_df)
 
-    if num_levels is None:
-        pyramid_dict = _get_pyramid_structure(
-            zarr_path=Path(root_omezarr, meta_df.loc[0, "tile_omezarr"]), # type: ignore
+        # Write AnnData tables into the `tables` zarr group
+        write_table(
+            fake_image_group,
+            "FOV_ROI_table",
+            fov_roi_table,
+            overwrite=True,
+            table_attrs={"type": "roi_table"},
         )
-        if len(pyramid_dict) == 1:
+        write_table(
+            fake_image_group,
+            "well_ROI_table",
+            well_roi_table,
+            overwrite=True,
+            table_attrs={"type": "roi_table"},
+        )
+
+        # Write multiscales metadata
+        source_file_name = root_omezarr.name
+        scale = (float(view_df.loc[0, "z_scale"]), float(view_df.loc[0, "y_scale"]), float(view_df.loc[0, "x_scale"]))
+        nb_channels = len(view_df["channel"].unique())
+        final_y_pixels = int(view_df.groupby("y_pos")["y_n_pixels"].unique().sum()[0])
+        final_x_pixels = int(view_df.groupby("x_pos")["x_n_pixels"].unique().sum()[0])
+        shape = (nb_channels, int(view_df.loc[0, "z_n_pixels"]), final_y_pixels, final_x_pixels)
+
+        if num_levels is None:
+            pyramid_dict = _get_pyramid_structure(
+                zarr_path=Path(root_omezarr, view_df.loc[0, "tile_omezarr"]), # type: ignore
+            )
+            if len(pyramid_dict) == 1:
+                pyramid_dict = _estimate_pyramid_depth(
+                    shape=shape,
+                    scale=scale
+                )
+        else:
             pyramid_dict = _estimate_pyramid_depth(
                 shape=shape,
-                scale=scale
+                scale=scale,
+                num_levels=num_levels,
             )
-    else:
-        pyramid_dict = _estimate_pyramid_depth(
-            shape=shape,
-            scale=scale,
-            num_levels=num_levels,
+
+        default_chunksize = [64, 1024, 1024]
+        for d, dim in enumerate(["z", "y", "x"]):
+            if chunksize[dim] is not None:
+                default_chunksize[d] = chunksize[dim]
+
+        write_ome_zarr_metadata(
+            zarr_group=fake_image_group,
+            meta_df=meta_df,
+            pyramid_dict=pyramid_dict,
+            contrast_limits=None,
+            input_param=dict(pattern=pattern,
+                            source_file=source_file_name,
+                            channel_color_settings=channel_color_settings,
+                            num_levels=num_levels,
+                            chunksize=default_chunksize),
+            user_channels_path=channel_color_settings,
+            is_proxy=True
         )
 
-    default_chunksize = [64, 1024, 1024]
-    for d, dim in enumerate(["z", "y", "x"]):
-        if chunksize[dim] is not None:
-            default_chunksize[d] = chunksize[dim]
+        # Build manifest
+        build_proxy(
+            proxy_image_path=fake_zarr_path / image_name,
+            meta_df=view_df,
+            source_zarr_path=root_omezarr,
+            chunksize=default_chunksize,
+        )
+    
+        # Update Fractal attributes metadata
+        attributes = dict(image=image_name)
 
-    write_ome_zarr_metadata(
-        zarr_group=fake_image_group,
-        meta_df=meta_df,
-        pyramid_dict=pyramid_dict,
-        contrast_limits=None,
-        input_param=dict(pattern=pattern,
-                         source_file=source_file_name,
-                         channel_color_settings=channel_color_settings,
-                         num_levels=num_levels,
-                         chunksize=default_chunksize),
-        user_channels_path=channel_color_settings,
-        is_proxy=True
-    )
+        # Update Fractal image list
+        image_list_updates.append(
+            dict(
+                zarr_url=str(fake_zarr_path),
+                attributes=attributes,
+                types=dict(is_3D=True)
+            )
+        )
+        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view_{view+1}.zarr")
 
-    # Build manifest
-    build_proxy(
-        proxy_image_path=fake_zarr_path / image_name,
-        meta_df=meta_df,
-        source_zarr_path=root_omezarr,
-        chunksize=default_chunksize,
-    )
-
+    return image_list_updates
 
 if __name__ == "__main__":
 

@@ -26,7 +26,7 @@ zarr_url = "path/to/zarr/image"
 output_zarr_name = "sampleA_fused"
 
 # e.g. list of path to the different views or channels
-zarr_image_paths: list[Path | str] = ["path/to/zarr_view1/raw_image", "path/to/zarr_view2/raw_image"]
+zarr_image_paths = ["path/to/zarr_view1/raw_image", "path/to/zarr_view2/raw_image"]
 
 # e.g. "Lectin" or "PGP9.5"
 channel_label = "Lectin"
@@ -52,6 +52,9 @@ fusion_chunksize = None
 
 # e.g. 4, recommended if memory always
 max_workers = 4 
+
+# e.g. whether to overwrite existing image.
+overwrite=True
                                              
 ###############################################################################
 
@@ -70,5 +73,6 @@ if __name__ == "__main__":
         transform_type=transform_type,
         fusion_chunksize=fusion_chunksize,
         registration_on_z_proj = registration_on_z_proj,
-        max_workers=max_workers
+        max_workers=max_workers,
+        overwrite=overwrite
     )

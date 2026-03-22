@@ -2,62 +2,62 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/api/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/installation/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/archive_or_dearchive_omezarr/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/correct_flatfield/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/correct_illumination/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/crop_regions_of_interest/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/fuse_views_or_channels/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/mesospim_to_omezarr/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/modify_omezarr_structure/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/prepare_mesospim_omezarr/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/tasks/stitch_with_multiview_stitcher/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/usage/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/usage/fractal_integration/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
     <url>
          <loc>https://reimann-lab.github.io/mesospim-fractal-tasks/usage/local_run/</loc>
-         <lastmod>2026-03-21</lastmod>
+         <lastmod>2026-03-22</lastmod>
     </url>
 </urlset>

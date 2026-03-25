@@ -32,6 +32,180 @@ def get_dimension_separator(arr: zarr.Array):
     # Works for common zarr v2 usage
     return getattr(arr, "_dimension_separator", None)
 
+def copy_group_attrs(src: zarr.Group, dst: zarr.Group) -> None:
+    """
+    Copy group attributes.
+    """
+    dst.attrs.update(dict(src.attrs))
+
+def collect_image_dataset_paths(root: zarr.Group) -> tuple[set[str], set[str]]:
+    """
+    Find image dataset paths from OME-NGFF multiscales metadata, excluding
+    anything inside labels/ or tables/.
+    """
+    image_dataset_paths: set[str] = set()
+
+    for group_path, group in root.groups():
+        gpath = normalize_zarr_path(group_path)
+
+        if is_under_any(gpath, ("labels", "tables")):
+            continue
+
+        attrs = dict(group.attrs)
+        multiscales = attrs.get("multiscales")
+        if not multiscales:
+            continue
+
+        for ms in multiscales:
+            for ds in ms.get("datasets", []):
+                rel = ds.get("path")
+                if rel is None:
+                    continue
+                full = normalize_zarr_path(str(Path(gpath) / rel) if gpath else rel)
+
+                if is_under_any(full, ("labels", "tables")):
+                    continue
+
+                image_dataset_paths.add(full)
+
+    return image_dataset_paths
+
+def copy_array_verbatim(src_arr: zarr.Array, dst_parent: zarr.Group, name: str) -> zarr.Array:
+    """
+    Copy an array with the same metadata and chunk data.
+    This preserves the original compressor.
+    """
+    dst_arr = dst_parent.create_dataset(
+        name=name,
+        shape=src_arr.shape,
+        chunks=src_arr.chunks,
+        dtype=src_arr.dtype,
+        compressor=src_arr.compressor,
+        fill_value=src_arr.fill_value,
+        order=src_arr.order,
+        filters=src_arr.filters,
+        dimension_separator=getattr(src_arr, "_dimension_separator", None),
+        overwrite=True,
+    )
+    dst_arr.attrs.update(dict(src_arr.attrs))
+    
+    # Copy without changing chunks
+    if "tables" in str(dst_parent.name):
+        dst_arr[:] = src_arr[:]
+    else:
+        src_arr = da.from_zarr(src_arr)
+        if len(dst_arr.shape) == 4:
+            z_idx = 1
+        else:
+            z_idx = 0
+        z_chunk = dst_arr.chunks[z_idx]
+        z_end = dst_arr.shape[z_idx]
+        for z in range(0, z_end, z_chunk):
+            region = (
+                slice(None),
+                slice(z, z+z_chunk),
+                slice(None),
+                slice(None))
+            region = region[abs(z_idx-1):]
+            src_arr[region].to_zarr(dst_arr, region=region, compute=True)
+    return dst_arr
+
+def recompress_array(
+    src_arr: zarr.Array,
+    dst_parent: zarr.Group,
+    name: str,
+    compressor,
+) -> zarr.Array:
+    """
+    Recreate one Zarr v2 array with the same metadata except compressor,
+    and copy the data over without rechunking.
+    """
+    dst_arr = dst_parent.create_dataset(
+        name=name,
+        shape=src_arr.shape,
+        chunks=src_arr.chunks,  # keep original chunks: no rechunking
+        dtype=src_arr.dtype,
+        compressor=compressor,
+        fill_value=src_arr.fill_value,
+        order=src_arr.order,
+        filters=src_arr.filters,
+        dimension_separator=getattr(src_arr, "_dimension_separator", None),
+        overwrite=True,
+    )
+    dst_arr.attrs.update(dict(src_arr.attrs))
+    src_arr = da.from_zarr(src_arr)
+
+    # Copy data chunk-by-chunk via regular array assignment.
+    # This rewrites data with the new compressor but same chunk grid.
+        # Copy without changing chunks
+    if len(dst_arr.shape) == 3:
+        z_idx = 0
+    else:
+        z_idx = 1
+    z_chunk = dst_arr.chunks[z_idx]
+    z_end = dst_arr.shape[z_idx]
+    for z in range(0, z_end, z_chunk):
+        region = (
+            slice(None),
+            slice(z, z+z_chunk),
+            slice(None),
+            slice(None))
+        region = region[abs(z_idx-1):]
+        src_arr[region].to_zarr(dst_arr, region=region, compute=True)
+    return dst_arr
+
+def recreate_hierarchy_and_copy(
+    source_root: zarr.Group,
+    archive_root: zarr.Group,
+    src_path: str | Path,
+    dst_path: str | Path,
+    image_dataset_paths: set[str],
+    compressor,
+) -> None:
+    """
+    Recursively recreate the group hierarchy.
+    - Image datasets listed in `image_dataset_paths` are recompressed.
+    - Other arrays are copied as-is.
+    - Group attrs are preserved.
+    """
+    # Copy attrs of root
+    copy_group_attrs(source_root, archive_root)
+
+    def recurse(src_group: zarr.Group, dst_group: zarr.Group, current_path: str = "") -> None:
+
+        # First create/copy child groups
+        for key in src_group.group_keys():
+            sub_src = src_group[key]
+            sub_dst = dst_group.require_group(key)
+            copy_group_attrs(sub_src, sub_dst)
+
+            sub_path = normalize_zarr_path(str(Path(current_path) / key) if current_path else key)
+            recurse(sub_src, sub_dst, sub_path)
+
+        # Then arrays in this group
+        for key in src_group.array_keys():
+            src_arr = src_group[key]
+            arr_path = normalize_zarr_path(str(Path(current_path) / key) if current_path else key)
+
+            if arr_path in image_dataset_paths:
+                logger.info(f"Recompressing {arr_path}")
+                recompress_array(src_arr, dst_group, key, compressor=compressor)
+            else:
+                logger.info(f"Copying as-is {arr_path}")
+                copy_array_verbatim(src_arr, dst_group, key)
+
+        # Copy also the non-zarr group "graph"
+        if len(list(Path(src_path, current_path).glob("graph"))) > 0:
+            logger.info(f"Copying graph folder {current_path}")
+            shutil.copytree(Path(src_path, current_path, "graph"), Path(dst_path, current_path, "graph"))
+
+        # Copy also the csv files
+        if len(list(Path(src_path, current_path).glob("*.csv"))) > 0:
+            for csv_file in list(Path(src_path, current_path).glob("*.csv")):
+                logger.info(f"Copying csv file {csv_file}")
+                shutil.copy(csv_file, Path(dst_path, current_path))
+
+    recurse(source_root, archive_root)
 
 def rewrite_omezarr_images_only(
     src_path: str | Path,
@@ -41,7 +215,7 @@ def rewrite_omezarr_images_only(
 ) -> None:
     """
     Copy an OME-Zarr and rewrite only image arrays with a new compressor.
-    labels/ and tables/ arrays are copied unchanged.
+    labels/ and tables/ arrays are copied unchanged. temp/ is deleted.
     """
     src_path = Path(src_path)
     dst_path = Path(dst_path)
@@ -58,11 +232,13 @@ def rewrite_omezarr_images_only(
     src_root = zarr.open_group(src_path, mode="r")
     dst_root = zarr.group(dst_path, overwrite=True)
 
-    image_dataset_paths = collect_image_dataset_paths(src_root)
+    image_dataset_paths= collect_image_dataset_paths(src_root)
 
     recreate_hierarchy_and_copy(
         source_root=src_root,
         archive_root=dst_root,
+        src_path=src_path,
+        dst_path=dst_path,
         image_dataset_paths=image_dataset_paths,
         compressor=image_compressor,
     )
@@ -94,12 +270,12 @@ def collect_multiscale_groups(root: zarr.Group) -> dict[str, list[str]]:
     Return:
         image_group_path -> list of full dataset paths in pyramid order
 
-    Skip anything under labels/ and tables/.
+    Skip anything under labels/ and tables/ and graph/ and temp/.
     """
     out: dict[str, list[str]] = {}
 
     def recurse(group: zarr.Group, group_path: str = "") -> None:
-        if is_under_any(group_path, ("labels", "tables")):
+        if is_under_any(group_path, ("labels", "tables", "graph", "temp")):
             return
 
         attrs = dict(group.attrs)
@@ -114,7 +290,7 @@ def collect_multiscale_groups(root: zarr.Group) -> dict[str, list[str]]:
                     full = normalize_zarr_path(
                         str(Path(group_path) / rel) if group_path else rel
                     )
-                    if not is_under_any(full, ("labels", "tables")):
+                    if not is_under_any(full, ("labels", "tables", "graph", "temp")):
                         dataset_paths.append(full)
 
             if dataset_paths:
@@ -131,6 +307,8 @@ def collect_multiscale_groups(root: zarr.Group) -> dict[str, list[str]]:
 def build_preview_omezarr(
     src_root: zarr.Group,
     preview_root: zarr.Group,
+    src_path: str | Path,
+    preview_path: str | Path,
 ) -> None:
     """
     Create a tiny OME-Zarr containing only the last pyramid level
@@ -140,9 +318,16 @@ def build_preview_omezarr(
     root_attrs = dict(src_root.attrs)
     preview_root.attrs.update(root_attrs)
 
+    # Copy also the csv files at the root
+    if len(list(Path(src_path).glob("*.csv"))) > 0:
+        for csv_file in list(Path(src_path).glob("*.csv")):
+            logger.info(f"Copying csv file {csv_file}")
+            shutil.copy(csv_file, Path(preview_path))
+
     multiscale_groups = collect_multiscale_groups(src_root)
 
     for image_group_path, dataset_paths in multiscale_groups.items():
+
         if not dataset_paths:
             continue
 
@@ -151,6 +336,17 @@ def build_preview_omezarr(
         if image_group_path:
             src_group = src_root[image_group_path]
             dst_group = preview_root.require_group(image_group_path)
+
+            # Copy also the non-zarr group "graph"
+            if len(list(Path(src_path, image_group_path).glob("graph"))) > 0:
+                logger.info(f"Copying graph folder {image_group_path}")
+                shutil.copytree(Path(src_path, image_group_path, "graph"), 
+                                Path(preview_path, image_group_path, "graph"))
+
+            if len(list(Path(src_path, image_group_path).glob("*.csv"))) > 0:
+                for csv_file in list(Path(src_path, image_group_path).glob("*.csv")):
+                    logger.info(f"Copying csv file {csv_file}")
+                    shutil.copy(csv_file, Path(preview_path, image_group_path))
         else:
             src_group = src_root
             dst_group = preview_root
@@ -200,6 +396,8 @@ def create_preview_from_omezarr(
     build_preview_omezarr(
         src_root=src_root,
         preview_root=preview_root,
+        src_path=src_path,
+        preview_path=preview_path,
     )
 
 def normalize_zarr_path(path: str) -> str:
@@ -219,132 +417,6 @@ def is_under_any(path: str, prefixes: Iterable[str]) -> bool:
         if p == prefix or p.startswith(prefix + "/"):
             return True
     return False
-
-
-def copy_group_attrs(src: zarr.Group, dst: zarr.Group) -> None:
-    """
-    Copy group attributes.
-    """
-    dst.attrs.update(dict(src.attrs))
-
-
-def copy_array_verbatim(src_arr: zarr.Array, dst_parent: zarr.Group, name: str) -> zarr.Array:
-    """
-    Copy an array with the same metadata and chunk data.
-    This preserves the original compressor.
-    """
-    dst_arr = dst_parent.create_dataset(
-        name=name,
-        shape=src_arr.shape,
-        chunks=src_arr.chunks,
-        dtype=src_arr.dtype,
-        compressor=src_arr.compressor,
-        fill_value=src_arr.fill_value,
-        order=src_arr.order,
-        filters=src_arr.filters,
-        dimension_separator=getattr(src_arr, "_dimension_separator", None),
-        overwrite=True,
-    )
-    dst_arr.attrs.update(dict(src_arr.attrs))
-    
-    # Copy without changing chunks
-    if "tables" in str(dst_parent.name):
-        dst_arr[:] = src_arr[:]
-    else:
-        src_arr = da.from_zarr(src_arr)
-        if len(dst_arr.shape) == 4:
-            z_idx = 1
-        else:
-            z_idx = 0
-        z_chunk = dst_arr.chunks[z_idx]
-        z_end = dst_arr.shape[z_idx]
-        for z in range(0, z_end, z_chunk):
-            region = (
-                slice(None),
-                slice(z, z+z_chunk),
-                slice(None),
-                slice(None))
-            region = region[abs(z_idx-1):]
-            src_arr[region].to_zarr(dst_arr, region=region, compute=True)
-    return dst_arr
-
-
-def recompress_array(
-    src_arr: zarr.Array,
-    dst_parent: zarr.Group,
-    name: str,
-    compressor,
-) -> zarr.Array:
-    """
-    Recreate one Zarr v2 array with the same metadata except compressor,
-    and copy the data over without rechunking.
-    """
-    dst_arr = dst_parent.create_dataset(
-        name=name,
-        shape=src_arr.shape,
-        chunks=src_arr.chunks,  # keep original chunks: no rechunking
-        dtype=src_arr.dtype,
-        compressor=compressor,
-        fill_value=src_arr.fill_value,
-        order=src_arr.order,
-        filters=src_arr.filters,
-        dimension_separator=getattr(src_arr, "_dimension_separator", None),
-        overwrite=True,
-    )
-    dst_arr.attrs.update(dict(src_arr.attrs))
-    src_arr = da.from_zarr(src_arr)
-
-    # Copy data chunk-by-chunk via regular array assignment.
-    # This rewrites data with the new compressor but same chunk grid.
-        # Copy without changing chunks
-    if len(dst_arr.shape) == 3:
-        z_idx = 0
-    else:
-        z_idx = 1
-    z_chunk = dst_arr.chunks[z_idx]
-    z_end = dst_arr.shape[z_idx]
-    for z in range(0, z_end, z_chunk):
-        region = (
-            slice(None),
-            slice(z, z+z_chunk),
-            slice(None),
-            slice(None))
-        region = region[abs(z_idx-1):]
-        src_arr[region].to_zarr(dst_arr, region=region, compute=True)
-    return dst_arr
-
-
-def collect_image_dataset_paths(root: zarr.Group) -> set[str]:
-    """
-    Find image dataset paths from OME-NGFF multiscales metadata, excluding
-    anything inside labels/ or tables/.
-    """
-    image_dataset_paths: set[str] = set()
-
-    for group_path, group in root.groups():
-        gpath = normalize_zarr_path(group_path)
-
-        if is_under_any(gpath, ("labels", "tables")):
-            continue
-
-        attrs = dict(group.attrs)
-        multiscales = attrs.get("multiscales")
-        if not multiscales:
-            continue
-
-        for ms in multiscales:
-            for ds in ms.get("datasets", []):
-                rel = ds.get("path")
-                if rel is None:
-                    continue
-                full = normalize_zarr_path(str(Path(gpath) / rel) if gpath else rel)
-
-                if is_under_any(full, ("labels", "tables")):
-                    continue
-
-                image_dataset_paths.add(full)
-
-    return image_dataset_paths
 
 def tar_directory(source_dir: Path, tar_path: Path) -> None:
     """
@@ -391,47 +463,8 @@ def untar_to_directory(tar_path: Path, extract_dir: Path) -> Path:
 
     return extracted_root
 
-def recreate_hierarchy_and_copy(
-    source_root: zarr.Group,
-    archive_root: zarr.Group,
-    image_dataset_paths: set[str],
-    compressor,
-) -> None:
-    """
-    Recursively recreate the group hierarchy.
-    - Image datasets listed in `image_dataset_paths` are recompressed.
-    - Other arrays are copied as-is.
-    - Group attrs are preserved.
-    """
-    # Copy attrs of root
-    copy_group_attrs(source_root, archive_root)
 
-    def recurse(src_group: zarr.Group, dst_group: zarr.Group, current_path: str = "") -> None:
-        # First create/copy child groups
-
-        for key in src_group.group_keys():
-            sub_src = src_group[key]
-            sub_dst = dst_group.require_group(key)
-            copy_group_attrs(sub_src, sub_dst)
-
-            sub_path = normalize_zarr_path(str(Path(current_path) / key) if current_path else key)
-            recurse(sub_src, sub_dst, sub_path)
-
-        # Then arrays in this group
-        for key in src_group.array_keys():
-            src_arr = src_group[key]
-            arr_path = normalize_zarr_path(str(Path(current_path) / key) if current_path else key)
-
-            if arr_path in image_dataset_paths:
-                logger.info(f"Recompressing {arr_path}")
-                recompress_array(src_arr, dst_group, key, compressor=compressor)
-            else:
-                logger.info(f"Copying as-is {arr_path}")
-                copy_array_verbatim(src_arr, dst_group, key)
-
-    recurse(source_root, archive_root)
-
-
+#TODO: see how this task can be adapted to the Fractal environment
 @validate_call
 def archive_or_dearchive_omezarr(
     *,
@@ -451,8 +484,10 @@ def archive_or_dearchive_omezarr(
         zarr_url: If archiving, it requires the path to any image of the OME-Zarr to archive. 
             The full OME-Zarr folder containing the image will be archived. If unarchiving, it requires
             the path to the TAR archive file containing the OME-Zarr folder you wish to unarchive.
-        compressor_name: Compressor to use for the archived OME-Zarr. Default: "zstd".
-        compression_level: Compression level to use for the archived OME-Zarr. Default: 9.
+        compressor_name: Compressor to use for the archived OME-Zarr. Default: "zstd" for archiving mode
+            and "lz4" for dearchiving mode.
+        compression_level: Compression level to use for the archived OME-Zarr. Default: 9 for archiving mode
+            and 5 for dearchiving mode.
         archive: If True, archives the OME-Zarr. If False, dearchives the OME-Zarr. In dearchiving,
             the zarr_url parameter is expected to be a tar archive with an OME-Zarr folder in it.
             Default: True.
@@ -519,6 +554,11 @@ def archive_or_dearchive_omezarr(
                     preview_path=preview_path,
                     overwrite=overwrite,
                 )
+            
+            # Copy in the OME-Zarr the logs folder
+            logs_path = Path(zarr_path.parent / "logs")
+            if logs_path.exists():
+                shutil.copytree(logs_path, Path(archive_path / "logs"))
 
             tar_path = Path(zarr_path.parent / (f"{archive_path.name}"+'.tar'))
             if tar_path.exists() and overwrite:

@@ -865,7 +865,7 @@
               }
             ],
             "title": "Registration Channel",
-            "description": "Channel for registration; requires either `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not both."
+            "description": "You should only provide this parameter if fusing views! Otherwise, leave it blank. When provided it tells which channel is to be used to compute the correct positions of the views. It requires either `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not both."
           },
           "registration_resolution_level": {
             "title": "Registration Resolution Level",

@@ -390,7 +390,7 @@ def prepare_mesospim_omezarr(
         logger.info("Creating fake raw_image...")
         fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
     else:
-        fake_zarr_path = Path(zarr_dir, zarr_name + "_view0.zarr")
+        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view{views_list[0]}.zarr")
     image_list_updates = []
     for view in views_list:
         if nb_views > 1:
@@ -488,11 +488,7 @@ def prepare_mesospim_omezarr(
                 types=dict(is_3D=True)
             )
         )
-<<<<<<< HEAD
-        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view_{view+1}.zarr")
-=======
-        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view{view+1}.zarr")
->>>>>>> 51dbdb904c42eb426eb3e8944fcda15efc6c9968
+        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view{view}.zarr")
 
     return image_list_updates
 

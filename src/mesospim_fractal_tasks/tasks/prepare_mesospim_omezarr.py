@@ -132,7 +132,7 @@ def find_per_tile_omezarr(
 
     n_channels = meta_df["channel"].unique().shape[0]
     n_views = meta_df["view"].unique().shape[0]
-    
+
     logger.info(f"Found {n_channels} channels and {n_views} views in {zarr_dir}.")
     logger.info(f"Found {int(len(rows) // (n_channels * n_views))} tiles per channel and view.")
 
@@ -389,7 +389,7 @@ def prepare_mesospim_omezarr(
         logger.info("Creating fake raw_image...")
         fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
     else:
-        fake_zarr_path = Path(zarr_dir, zarr_name + "view_0.zarr")
+        fake_zarr_path = Path(zarr_dir, zarr_name + "_view0.zarr")
     image_list_updates = []
     for view in range(nb_views):
         if nb_views > 1:
@@ -397,7 +397,7 @@ def prepare_mesospim_omezarr(
         fake_root = zarr.open_group(fake_zarr_path, mode="a")
         image_name = "fake_raw_image"
         fake_image_group = fake_root.create_group(image_name, overwrite=overwrite)
-        
+
         view_df = meta_df[meta_df["view"] == view].copy()
         view_df = view_df.reset_index(drop=True)
 
@@ -476,7 +476,7 @@ def prepare_mesospim_omezarr(
             source_zarr_path=root_omezarr,
             chunksize=default_chunksize,
         )
-    
+
         # Update Fractal attributes metadata
         attributes = dict(image=image_name)
 
@@ -488,7 +488,11 @@ def prepare_mesospim_omezarr(
                 types=dict(is_3D=True)
             )
         )
+<<<<<<< HEAD
         fake_zarr_path = Path(zarr_dir, zarr_name + f"_view_{view+1}.zarr")
+=======
+        fake_zarr_path = Path(zarr_dir, zarr_name + f"_view{view+1}.zarr")
+>>>>>>> 51dbdb904c42eb426eb3e8944fcda15efc6c9968
 
     return image_list_updates
 

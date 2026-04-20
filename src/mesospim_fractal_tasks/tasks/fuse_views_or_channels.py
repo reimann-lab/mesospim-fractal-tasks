@@ -434,9 +434,10 @@ def fuse_views_or_channels(
         zarr_url: Absolute path to the OME-Zarr image.
         output_zarr_name: Name for the output OME-Zarr.
         zarr_image_paths: List of absolute paths to the OME-Zarr images to fuse.
-        registration_channel: Channel for registration; requires either
-            `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not
-            both.
+        registration_channel: You should only provide this parameter if fusing views! Otherwise, 
+            leave it blank. When provided it tells which channel is to be used to 
+            compute the correct positions of the views. It requires either 
+            `wavelength_id` (e.g. `488`) or `label` (e.g. `PGP9.5`), but not both.
         registration_resolution_level: Resolution level to use for registration.
             Recommended to set the lowest level possible, e.g. 5 (highest is 0).
             If None, the lowest resolution level available will be used for registration.

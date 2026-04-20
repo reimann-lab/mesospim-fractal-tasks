@@ -385,13 +385,14 @@ def prepare_mesospim_omezarr(
     meta_df = find_per_tile_omezarr(zarr_dir, root_omezarr)
 
     nb_views = meta_df["view"].unique().shape[0]
+    views_list = meta_df["view"].unique().tolist()
     if nb_views == 1:
         logger.info("Creating fake raw_image...")
         fake_zarr_path = Path(zarr_dir, zarr_name + ".zarr")
     else:
         fake_zarr_path = Path(zarr_dir, zarr_name + "_view0.zarr")
     image_list_updates = []
-    for view in range(nb_views):
+    for view in views_list:
         if nb_views > 1:
             logger.info(f"Creating fake raw_image for view {view+1}/{nb_views}...")
         fake_root = zarr.open_group(fake_zarr_path, mode="a")
@@ -400,7 +401,6 @@ def prepare_mesospim_omezarr(
 
         view_df = meta_df[meta_df["view"] == view].copy()
         view_df = view_df.reset_index(drop=True)
-
 
         # Check the congruency of x and y number of pixels
         check_n_pixels(view_df)

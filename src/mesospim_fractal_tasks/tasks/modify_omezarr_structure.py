@@ -191,10 +191,25 @@ def rechunk_omezarr(
     image_meta = load_NgffImageMeta(str(zarr_path))
     scale = tuple(image_meta.get_pixel_sizes_zyx(level=0))
     old_num_levels = image_meta.num_levels
+    try:
+        src_array = zarr.open_array(str(zarr_path / "0"), mode="r")
+    except Exception as exc:
+        raise ValueError(
+            f"Level 0 of {zarr_path} could not be "
+            "opened. This implies that "
+            " level 0 may be corrupted. "
+            "Aborting task..."
+        )
     if num_levels is None:
         num_levels = old_num_levels
     else:
         if num_levels < old_num_levels:
+            new_pyramid_dict = _estimate_pyramid_depth(
+                shape=src_array.shape,
+                scale=scale,
+                num_levels=num_levels,
+            )
+            _update_multiscales_datasets(zarr_path, new_pyramid_dict)
             for level in range(num_levels, old_num_levels):
                 shutil.rmtree(str(zarr_path / str(level)))
 
@@ -214,15 +229,6 @@ def rechunk_omezarr(
             break
     
     if num_levels > old_num_levels:
-        try:
-            src_array = zarr.open_array(str(zarr_path / "0"), mode="r")
-        except Exception as exc:
-            raise ValueError(
-                f"Level 0 of {zarr_path} could not be "
-                "opened. This implies that "
-                " level 0 may be corrupted. "
-                "Aborting task..."
-            )
         new_pyramid_dict = _estimate_pyramid_depth(
             shape=src_array.shape,
             scale=scale,
@@ -234,6 +240,8 @@ def rechunk_omezarr(
                 channel_index=None, 
                 pyramid_dict=new_pyramid_dict, 
                 chunksize=new_chunksize)
+        
+        _update_multiscales_datasets(zarr_path, new_pyramid_dict)
     
     logger.info("Rechunking complete for all levels.")
 
@@ -443,16 +451,28 @@ def modify_omezarr_structure(
     image_attrs = zarr_group.attrs.asdict()
     if channels_list is not None:
         omero_update: dict[str, Any] = {"color": {}, "window": {}}
-        channel_labels = {channel.laser_wavelength: channel.label for channel in channels_list}
+
+        # Verify uniqueness of channel labels and laser wavelengths
+        new_channels = {}
+        for channel in channels_list:
+            
+            if channel.label in new_channels.values():
+                raise ValueError(f"Channel label {channel.label} is not unique. Channels "
+                " must be uniquely labeled.")
+            if channel.laser_wavelength in new_channels.keys():
+                raise ValueError(f"Laser wavelength {channel.laser_wavelength} is not unique. Channels "
+                " should have unique laser wavelengths.")
+            new_channels[channel.laser_wavelength] = channel.label
+
         for channel in image_attrs["acquisition_metadata"]["channels"]:
-            current_wavelength = channel["excitation_wavelength"]
-            if current_wavelength in channel_labels.keys():
-                channel["label"] = channel_labels[current_wavelength]
+            current_wavelength = int(channel["excitation_wavelength"])
+            if current_wavelength in new_channels.keys():
+                channel["label"] = new_channels[current_wavelength]
         
         for channel in image_attrs["omero"]["channels"]:
             current_wavelength = int(channel["wavelength_id"])
-            if current_wavelength in channel_labels.keys():
-                channel["label"] = channel_labels[current_wavelength]
+            if current_wavelength in new_channels.keys():
+                channel["label"] = new_channels[current_wavelength]
         zarr_group.attrs.update(image_attrs)
     
         # _update_omero_channels expects a list indexed by channel position

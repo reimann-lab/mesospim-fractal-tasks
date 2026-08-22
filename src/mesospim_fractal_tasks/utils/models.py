@@ -1,6 +1,6 @@
-from typing import Optional, Any
+from typing import Optional, Any, Annotated
 from pathlib import Path
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints, Field
 import numpy as np
 import logging
 import dask.array as da
@@ -20,11 +20,14 @@ class Channel(BaseModel):
         start_contrast: Start contrast of the channel.
         end_contrast: End contrast of the channel.
     """
-    label: str = "channel_name"
-    laser_wavelength: int = 488
+    model_config = ConfigDict(validate_default=True, extra="forbid")
+
+    label: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    laser_wavelength: Annotated[int, Field(gt=0)] = 488
     color: Optional[str] = None
     start_contrast: Optional[float] = None
     end_contrast: Optional[float] = None
+
 
 class DimTuple(BaseModel):
     """

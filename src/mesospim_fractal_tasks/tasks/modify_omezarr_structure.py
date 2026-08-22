@@ -34,16 +34,14 @@ logger = logging.getLogger(__name__)
 
 def _update_omero_channels(zarr_path: Path, update_dict: dict[str, Any]) -> None:
     """
-    Update OMERO channel metadata in-place.
-
-    ``update_dict`` keys map to channel attribute names.  The special key
-    ``"window"`` is expected to be a dict keyed by *string* channel index with
-    ``{"start": ..., "end": ...}`` sub-dicts.  All other keys are expected to
-    be lists indexed by channel position.
+    Update OMERO channel metadata in-place given a full list of OMERO channels specifications.
 
     Parameters:
         zarr_path: Path to the OME-Zarr group.
         update_dict: Mapping of attribute name → new values.
+
+    Returns:
+        None
     """
     zarr_group = zarr.open_group(str(zarr_path), mode="r+")
     channels_attrs = zarr_group.attrs["omero"]["channels"]
@@ -114,80 +112,12 @@ def _update_multiscales_datasets(zarr_path: Path, pyramid_dict: dict[str, dict])
     zarr_group.attrs.update(attrs)
     logger.info(f"Updated multiscales datasets metadata ({len(new_datasets)} levels).")
 
-def _check_level_complete(
-    zarr_path: Path, 
-    level: int
-) -> bool:
-    """
-    Check whether all chunks of a given pyramid level are present on disk.
-
-    Parameters:
-        zarr_path: Path to the OME-Zarr group (e.g. ``plate.zarr/B/03/0``).
-        level: Pyramid level index (0 = full resolution).
-
-    Returns:
-        ``True`` if every expected chunk file exists, ``False`` otherwise.
-    """
-from pathlib import Path
-import zarr
-
 def _is_int(s: str) -> bool:
     try:
         int(s)
         return True
     except ValueError:
         return False
-
-def _check_level_complete(
-    zarr_path: Path, 
-    level: int
-) -> bool:
-    root = zarr.open(str(zarr_path), mode="r")
-    arr = root[str(level)]
-
-    level_path = zarr_path / str(level)
-    if not level_path.exists():
-        return False
-
-    # Discover chunk files on disk (sparse store => only stored chunks exist)
-    chunk_files = [
-        p for p in level_path.rglob("*")
-        if p.is_file() and p.name not in (".zarray", ".zattrs", ".zgroup")
-    ]
-
-    # Try to parse chunk coordinates from relative path, supporting "/" or "."
-    for p in chunk_files:
-        rel = p.relative_to(level_path)
-
-        # Case A: "0/12/7" (dimension_separator="/")
-        parts = rel.parts
-        if all(_is_int(x) for x in parts):
-            coords = tuple(int(x) for x in parts)
-
-        # Case B: "0.12.7" (dimension_separator=".")
-        elif rel.name.count(".") >= 1 and all(_is_int(x) for x in rel.name.split(".")):
-            coords = tuple(int(x) for x in rel.name.split("."))
-
-        else:
-            # Not a chunk file we recognize (could be extra files); skip it safely
-            continue
-
-        # Convert chunk coords -> array slices and force decoding by reading
-        if len(coords) != arr.ndim:
-            return False
-
-        slices = []
-        for cc, csize, dim in zip(coords, arr.chunks, arr.shape):
-            start = cc * csize
-            stop = min(start + csize, dim)
-            slices.append(slice(start, stop))
-
-        try:
-            _ = arr[tuple(slices)]  # triggers decompression/decoding
-        except Exception:
-            return False
-
-    return True
 
 def _rechunk_level(
     zarr_path: Path,
@@ -196,7 +126,8 @@ def _rechunk_level(
 ) -> None:
     """
     Rechunk a single pyramid level in-place by writing to a temporary array
-    and atomically replacing the original.
+    and replacing the original via rename, so the original survives until
+    the new array is committed.
 
     Parameters:
         zarr_path: Path to the OME-Zarr group.
@@ -205,33 +136,43 @@ def _rechunk_level(
     """
     level_path = zarr_path / str(level)
     tmp_path = zarr_path / f"_tmp_rechunk_{level}"
+    old_path = zarr_path / f"_old_rechunk_{level}"
 
     arr = da.from_zarr(str(level_path))
     arr_rechunked = arr.rechunk(new_chunksize)
 
     logger.info(f"Rechunking level {level}: {arr.chunksize} → {new_chunksize}")
 
-    # Write to temp store
-    tmp = zarr.open(
-        str(tmp_path),
-        shape=arr.shape,
-        chunks=new_chunksize,
-        dtype=arr.dtype,
-        mode="w",
-        dimension_separator="/",
-        write_empty_chunks=False,
-        fill_value=0,
-    )
-    z_chunk = new_chunksize[1]
-    z_end = arr.shape[1]
-    for z in range(0, z_end, z_chunk):
-        logger.info(f"Progress: {z/z_end*100:.2f}%")
-        region = (slice(None), slice(z, z + z_chunk), slice(None), slice(None))
-        arr_rechunked[region].to_zarr(tmp, region=region, compute=True)
+    try:
+        tmp = zarr.open(
+            str(tmp_path),
+            shape=arr.shape,
+            chunks=new_chunksize,
+            dtype=arr.dtype,
+            mode="w",
+            dimension_separator="/",
+            write_empty_chunks=False,
+            fill_value=0,
+        )
+        z_chunk = new_chunksize[1]
+        z_end = arr.shape[1]
+        for z in range(0, z_end, z_chunk):
+            logger.info(f"Progress: {z/z_end*100:.2f}%")
+            region = (slice(None), slice(z, z + z_chunk), slice(None), slice(None))
+            arr_rechunked[region].to_zarr(tmp, region=region, compute=True)
+    except Exception:
+        shutil.rmtree(str(tmp_path), ignore_errors=True)
+        raise
 
-    # Atomic swap
-    shutil.rmtree(str(level_path))
-    shutil.move(str(tmp_path), str(level_path))
+    # Commit: original is only discarded once the replacement is in place.
+    shutil.move(str(level_path), str(old_path))
+    try:
+        shutil.move(str(tmp_path), str(level_path))
+    except Exception:
+        shutil.move(str(old_path), str(level_path))  # roll back
+        raise
+    shutil.rmtree(str(old_path), ignore_errors=True)
+
     logger.info(f"Rechunking level {level} complete.")
 
 def rechunk_omezarr(
@@ -258,20 +199,30 @@ def rechunk_omezarr(
                 shutil.rmtree(str(zarr_path / str(level)))
 
     for level in range(min(num_levels, old_num_levels)):
-        if not _check_level_complete(zarr_path, level) and level == 0: 
-            raise ValueError(
-                f"Level 0 of {zarr_path} is incomplete. "
-                "Cannot rechunk a corrupted image, aborting task..."
-            )
-        elif not _check_level_complete(zarr_path, level) and level > 0:
-            logger.info(f"Level {level} of {zarr_path} is incomplete, "
-                        f"rebuilding level using level {level - 1} instead.")
+        try: 
+            _rechunk_level(zarr_path, level, new_chunksize)
+        except Exception as exc:
+            if level == 0:
+                raise ValueError(
+                    f"Level 0 of {zarr_path} could not be "
+                    "rechunked and may be corrupted. "
+                    "Aborting task..."
+                ) from exc
+            logger.exception(f"Level {level} of {zarr_path} is unusable, "
+                            f"rebuilding from level {level - 1} instead.")
             old_num_levels = level
             break
-        _rechunk_level(zarr_path, level, new_chunksize)
     
     if num_levels > old_num_levels:
-        src_array = zarr.open_array(str(zarr_path / "0"), mode="r")
+        try:
+            src_array = zarr.open_array(str(zarr_path / "0"), mode="r")
+        except Exception as exc:
+            raise ValueError(
+                f"Level 0 of {zarr_path} could not be "
+                "opened. This implies that "
+                " level 0 may be corrupted. "
+                "Aborting task..."
+            )
         new_pyramid_dict = _estimate_pyramid_depth(
             shape=src_array.shape,
             scale=scale,
@@ -311,13 +262,14 @@ def modify_omezarr_pyramid(
     image_meta = load_NgffImageMeta(str(zarr_path))
     old_num_levels = image_meta.num_levels
     scale = tuple(image_meta.get_pixel_sizes_zyx(level=0))
-    full_res_shape = zarr.open_array(str(zarr_path / "0"), mode="r").shape 
-
-    # Validate level 0 is complete
-    if not _check_level_complete(zarr_path, 0):
+    try:
+        full_res_shape = zarr.open_array(str(zarr_path / "0"), mode="r").shape 
+    except Exception as exc:
         raise ValueError(
-            f"Level 0 of {zarr_path} is incomplete. "
-            "The full resolution OME-Zarr image is corrupted, aborting task..."
+            f"Level 0 of {zarr_path} could not be "
+            "opened. This implies that "
+            " level 0 may be corrupted. "
+            "Aborting task..."
         )
 
     # Compute the desired pyramid structure
@@ -333,33 +285,78 @@ def modify_omezarr_pyramid(
             level_path = zarr_path / str(level)
             if level_path.exists():
                 logger.info(f"Removing surplus pyramid level {level}.")
-                shutil.rmtree(str(level_path))
+                shutil.rmtree(str(level_path), ignore_errors=True)
 
-    # Determine which levels need to be (re)built
-    for level in range(1, num_levels):
-        level_path = zarr_path / str(level)
-        if level_path.exists():
-            
-            # Check completeness
-            is_complete = _check_level_complete(zarr_path, level)
-            if not is_complete:
-                logger.info(f"Level {level} is incomplete, "
-                        f"rebuilding using level {level-1}...")
-                shutil.rmtree(str(level_path))
-                _build_single_level(
-                    zarr_path, level, 
-                    channel_index=None,
-                    pyramid_dict=new_pyramid_dict, 
-                    chunksize=chunksize
-                )
-        else:
-            logger.info(f"Building pyramid level {level}...")
+    # Highest level on disk, capped so that at least the top level is rebuilt
+    last_existing_level = 0
+    while (zarr_path / str(last_existing_level + 1)).exists():
+        last_existing_level += 1
+    last_existing_level = min(last_existing_level, num_levels - 1)
+
+    if last_existing_level == (num_levels-1) and num_levels > 1:
+        logger.info(f"Pyrmaid is complete on disk. Checking completeness of last level"
+            " as safeguard against corrupted OME-Zarr image.")
+        try:
+            logger.info(f"Building last pyramid level using level above...")
+            shutil.move(str(zarr_path / str(last_existing_level)), 
+                        str(zarr_path / f"_old_{last_existing_level}"))
             _build_single_level(
-                zarr_path, level, 
+                zarr_path, last_existing_level,
+                channel_index=None,
+                pyramid_dict=new_pyramid_dict,
+                chunksize=chunksize,
+            )
+            shutil.rmtree(str(zarr_path / f"_old_{last_existing_level}"), ignore_errors=True)
+        
+            # Update metadata
+            _update_multiscales_datasets(zarr_path, new_pyramid_dict)
+            logger.info(f"Pyramid modification complete: {num_levels} levels.")
+            return
+
+        except Exception as exc:
+            if num_levels == 2:
+                shutil.move(str(zarr_path / f"_old_{last_existing_level}"), 
+                        str(zarr_path / str(last_existing_level)))
+                raise ValueError(
+                    f"Level 1 of {zarr_path} could not be "
+                    "rebuilt using level 0. This implies that "
+                    " level 0 may be corrupted. "
+                    "Aborting task..."
+                ) from exc
+            logger.exception(
+                f"Level {last_existing_level} of {zarr_path} is unusable, "
+                f"rebuilding it from level {last_existing_level - 1} instead."
+            )
+            shutil.rmtree(str(zarr_path / str(last_existing_level)), ignore_errors=True)
+            shutil.rmtree(str(zarr_path / str(last_existing_level-1)), ignore_errors=True)
+            shutil.rmtree(str(zarr_path / f"_old_{last_existing_level}"), ignore_errors=True)
+            last_existing_level -= 2
+
+    while last_existing_level >= 0:
+        try:
+            for level in range(last_existing_level + 1, num_levels):
+                logger.info(f"Building pyramid level {level} from level {level - 1}...")
+                _build_single_level(
+                    zarr_path, level,
                     channel_index=None,
-                    pyramid_dict=new_pyramid_dict, 
-                    chunksize=chunksize
+                    pyramid_dict=new_pyramid_dict,
+                    chunksize=chunksize,
                 )
+            break
+        except Exception as exc:
+            if last_existing_level == 0:
+                raise ValueError(
+                    f"Level 0 of {zarr_path} could not be used to build the pyramid. "
+                    "The full resolution OME-Zarr image is corrupted, aborting task..."
+                ) from exc
+            logger.exception(
+                f"Level {last_existing_level} of {zarr_path} is unusable, "
+                f"rebuilding it from level {last_existing_level - 1} instead."
+            )
+            shutil.rmtree(str(zarr_path / str(last_existing_level)), ignore_errors=True)
+            if Path(zarr_path / str(last_existing_level+1)).exists():
+                shutil.rmtree(str(zarr_path / str(last_existing_level+1)), ignore_errors=True)
+            last_existing_level -= 1
 
     # Update metadata
     _update_multiscales_datasets(zarr_path, new_pyramid_dict)
@@ -411,7 +408,7 @@ def modify_omezarr_structure(
     cluster = None
     client = None
     try:
-        cluster = _set_dask_cluster(n_workers = 1)
+        cluster = _set_dask_cluster()
         client = Client(cluster)
         client.forward_logging(logger_name = "mesospim_fractal_tasks", level=logging.INFO)
 
@@ -424,7 +421,7 @@ def modify_omezarr_structure(
         # Pyramid modification only (no rechunking)
         if num_levels is not None and chunksize is None:
             logger.info(
-                f"Modifying pyramid: target num_levels={num_levels}"
+                f"Modifying OME-Zarr pyramid. Target number of levels: {num_levels}"
             )
             modify_omezarr_pyramid(zarr_path, num_levels, tuple(new_chunksize))
     
@@ -445,7 +442,7 @@ def modify_omezarr_structure(
     zarr_group = zarr.open_group(str(zarr_path), mode="r+")
     image_attrs = zarr_group.attrs.asdict()
     if channels_list is not None:
-        omero_update: dict[str, Any] = {}
+        omero_update: dict[str, Any] = {"color": {}, "window": {}}
         channel_labels = {channel.laser_wavelength: channel.label for channel in channels_list}
         for channel in image_attrs["acquisition_metadata"]["channels"]:
             current_wavelength = channel["excitation_wavelength"]
@@ -461,8 +458,6 @@ def modify_omezarr_structure(
         # _update_omero_channels expects a list indexed by channel position
         channel_order = {channel["label"]: str(i) for i, channel in enumerate(image_attrs["omero"]["channels"])}
         for channel in channels_list:
-            omero_update["color"] = {}
-            omero_update["window"] = {}
             if channel.color is not None:
                 omero_update["color"][channel_order[channel.label]] = channel.color
 
@@ -472,12 +467,11 @@ def modify_omezarr_structure(
             if channel.end_contrast is not None:
                 omero_update["window"][channel_order[channel.label]]["end"] = channel.end_contrast
 
-
-        if omero_update:
+        if len(omero_update["color"]) > 0 or len(omero_update["window"]) > 0:
             logger.info("Updating OMERO channel metadata.")
             _update_omero_channels(zarr_path, omero_update)
 
-        # Rename image and update metadata
+    # Rename image and update metadata
     if new_image_name is not None:
         _update_multiscales_name(zarr_path, new_image_name)
         shutil.move(str(zarr_path), str(zarr_path.parent / new_image_name))

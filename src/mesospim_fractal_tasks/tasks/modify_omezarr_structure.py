@@ -475,18 +475,35 @@ def modify_omezarr_structure(
                 channel["label"] = new_channels[current_wavelength]
         zarr_group.attrs.update(image_attrs)
     
-        # _update_omero_channels expects a list indexed by channel position
-        channel_order = {channel["label"]: str(i) for i, channel in enumerate(image_attrs["omero"]["channels"])}
+        # Update omero channels if necessary
+        wavelength_order = {}
+        for i, ch in enumerate(image_attrs["omero"]["channels"]):
+            try:
+                wavelength_order[int(ch["wavelength_id"])] = str(i)
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        missing = [c.laser_wavelength for c in channels_list
+                   if c.laser_wavelength not in wavelength_order]
+        if missing:
+            raise ValueError(
+                f"No channel with laser wavelength(s) {missing} in {zarr_path}. "
+                f"Available wavelengths: {sorted(wavelength_order)}."
+            )
+
         for channel in channels_list:
+            index = wavelength_order[channel.laser_wavelength]
             if channel.color is not None:
-                omero_update["color"][channel_order[channel.label]] = channel.color
+                omero_update["color"][index] = channel.color
 
-            omero_update["window"][channel_order[channel.label]] = {}
+            window = {}
             if channel.start_contrast is not None:
-                omero_update["window"][channel_order[channel.label]]["start"] = channel.start_contrast
+                window["start"] = channel.start_contrast
             if channel.end_contrast is not None:
-                omero_update["window"][channel_order[channel.label]]["end"] = channel.end_contrast
-
+                window["end"] = channel.end_contrast
+            if window:
+                omero_update["window"][index] = window
+        
         if len(omero_update["color"]) > 0 or len(omero_update["window"]) > 0:
             logger.info("Updating OMERO channel metadata.")
             _update_omero_channels(zarr_path, omero_update)
